@@ -11,7 +11,7 @@ where python >nul 2>nul || (
 if not exist ".venv\Scripts\python.exe" python -m venv .venv
 call ".venv\Scripts\activate.bat"
 python -m pip install --upgrade pip
-python -m pip install -e ".[audio]"
+python -m pip install -e ".[all]"
 
 where ffmpeg >nul 2>nul || (
   echo.
