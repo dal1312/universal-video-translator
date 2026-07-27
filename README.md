@@ -83,7 +83,7 @@ Installazione e avvio dell'interfaccia grafica:
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e ".[audio]"
+pip install -e ".[all]"
 python universal_video_translator.py
 ```
 
@@ -128,9 +128,9 @@ Questi valori saranno resi configurabili dall'interfaccia e da un file di config
 
 ### Fase 3 — Uso universale
 
-- [ ] overlay desktop indipendente dal browser;
+- [x] overlay desktop indipendente dal browser;
 - [ ] cattura dell'audio di sistema;
-- [ ] supporto a video YouTube e player locali;
+- [x] URL YouTube tramite yt-dlp e player locali;
 - [x] esportazione WAV/MP3 della traccia audio italiana;
 - [ ] pacchetto installabile per Windows.
 
