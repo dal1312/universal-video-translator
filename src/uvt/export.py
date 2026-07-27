@@ -85,3 +85,45 @@ def export_italian_audio(
             detail = exc.stderr.strip() or "mix audio non riuscito"
             raise TranscriptionError(f"Errore FFmpeg: {detail}") from exc
     return output
+
+
+def mux_video_with_italian_audio(
+    source_video: str | Path,
+    italian_audio: str | Path,
+    destination: str | Path,
+) -> Path:
+    source = Path(source_video)
+    audio = Path(italian_audio)
+    output = Path(destination)
+    if not source.is_file() or not audio.is_file():
+        raise ValueError("Video sorgente o traccia italiana non trovati.")
+    command = [
+        ensure_ffmpeg(),
+        "-v",
+        "error",
+        "-y",
+        "-i",
+        str(source),
+        "-i",
+        str(audio),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-metadata:s:a:0",
+        "language=ita",
+        "-shortest",
+        str(output),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() or "creazione video non riuscita"
+        raise TranscriptionError(f"Errore FFmpeg: {detail}") from exc
+    return output
