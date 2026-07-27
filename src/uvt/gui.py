@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import tkinter as tk
 import threading
+import tempfile
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .cache import TranslationCache
-from .export import export_italian_audio
+from .export import export_italian_audio, mux_video_with_italian_audio
 from .ollama import OllamaTranslator
 from .player import SubtitlePlayer
 from .transcription import load_cues
@@ -97,6 +98,10 @@ class TranslatorWindow(tk.Tk):
             controls, text="Esporta audio", command=self._export
         )
         self.export_button.pack(side="left", padx=4)
+        self.video_button = ttk.Button(
+            controls, text="Crea video IT", command=self._export_video
+        )
+        self.video_button.pack(side="left", padx=4)
         ttk.Checkbutton(
             controls, text="Mostra testo", variable=self.show_text_var
         ).pack(side="left", padx=16)
@@ -199,6 +204,52 @@ class TranslatorWindow(tk.Tk):
     def _export_complete(self, output: Path) -> None:
         self.status_var.set("Esportazione completata")
         messagebox.showinfo("Traccia creata", f"File salvato:\n{output}")
+
+    def _export_video(self) -> None:
+        source = Path(self.file_var.get())
+        if source.suffix.lower() in {".srt", ".vtt"}:
+            messagebox.showerror("Errore", "Seleziona il file video originale.")
+            return
+        destination = filedialog.asksaveasfilename(
+            title="Salva video in italiano",
+            defaultextension=".mp4",
+            filetypes=(("Video MP4", "*.mp4"),),
+        )
+        if not destination:
+            return
+        self.video_button.configure(state="disabled")
+        threading.Thread(
+            target=self._run_video_export,
+            args=(source, Path(destination)),
+            daemon=True,
+        ).start()
+
+    def _run_video_export(self, source: Path, destination: Path) -> None:
+        try:
+            with tempfile.TemporaryDirectory(prefix="uvt-video-") as directory:
+                audio = Path(directory) / "italiano.wav"
+                cues = load_cues(source, whisper_model=self.whisper_var.get())
+                export_italian_audio(
+                    cues,
+                    audio,
+                    translator=OllamaTranslator(model=self.model_var.get().strip()),
+                    cache=TranslationCache(),
+                    source_language=self.language_var.get(),
+                    rate=self.rate_var.get(),
+                    on_progress=lambda current, total: self.after(
+                        0, self.status_var.set, f"Creazione video {current}/{total}"
+                    ),
+                )
+                mux_video_with_italian_audio(source, audio, destination)
+            self.after(0, self._video_complete, destination)
+        except Exception as exc:
+            self.after(0, self._show_error, exc)
+        finally:
+            self.after(0, self.video_button.configure, {"state": "normal"})
+
+    def _video_complete(self, output: Path) -> None:
+        self.status_var.set("Video italiano completato")
+        messagebox.showinfo("Video creato", f"File salvato:\n{output}")
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
