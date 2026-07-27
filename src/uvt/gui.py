@@ -6,6 +6,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .cache import TranslationCache
+from .export import export_italian_audio
 from .ollama import OllamaTranslator
 from .player import SubtitlePlayer
 from .transcription import load_cues
@@ -92,6 +93,10 @@ class TranslatorWindow(tk.Tk):
             controls, text="Stop", command=self._stop, state="disabled"
         )
         self.stop_button.pack(side="left", padx=4)
+        self.export_button = ttk.Button(
+            controls, text="Esporta audio", command=self._export
+        )
+        self.export_button.pack(side="left", padx=4)
         ttk.Checkbutton(
             controls, text="Mostra testo", variable=self.show_text_var
         ).pack(side="left", padx=16)
@@ -154,6 +159,46 @@ class TranslatorWindow(tk.Tk):
         if self.player:
             self.player.stop()
         self._reset_controls()
+
+    def _export(self) -> None:
+        destination = filedialog.asksaveasfilename(
+            title="Salva traccia italiana",
+            defaultextension=".wav",
+            filetypes=(("Audio WAV", "*.wav"), ("Audio MP3", "*.mp3")),
+        )
+        if not destination:
+            return
+        self.export_button.configure(state="disabled")
+        self.status_var.set("Preparazione esportazione…")
+        threading.Thread(
+            target=self._run_export, args=(destination,), daemon=True
+        ).start()
+
+    def _run_export(self, destination: str) -> None:
+        try:
+            cues = load_cues(
+                Path(self.file_var.get()), whisper_model=self.whisper_var.get()
+            )
+            output = export_italian_audio(
+                cues,
+                destination,
+                translator=OllamaTranslator(model=self.model_var.get().strip()),
+                cache=TranslationCache(),
+                source_language=self.language_var.get(),
+                rate=self.rate_var.get(),
+                on_progress=lambda current, total: self.after(
+                    0, self.status_var.set, f"Esportazione {current}/{total}"
+                ),
+            )
+            self.after(0, self._export_complete, output)
+        except Exception as exc:
+            self.after(0, self._show_error, exc)
+        finally:
+            self.after(0, self.export_button.configure, {"state": "normal"})
+
+    def _export_complete(self, output: Path) -> None:
+        self.status_var.set("Esportazione completata")
+        messagebox.showinfo("Traccia creata", f"File salvato:\n{output}")
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
