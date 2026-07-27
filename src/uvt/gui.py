@@ -7,8 +7,10 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .cache import TranslationCache
+from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .ollama import OllamaTranslator
+from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .transcription import load_cues
 
@@ -20,6 +22,8 @@ class TranslatorWindow(tk.Tk):
         self.geometry("760x500")
         self.minsize(650, 430)
         self.player: SubtitlePlayer | None = None
+        self.download_directory: tempfile.TemporaryDirectory[str] | None = None
+        self.overlay = SubtitleOverlay(self)
 
         self.file_var = tk.StringVar()
         self.model_var = tk.StringVar(value="qwen3:4b")
@@ -37,7 +41,7 @@ class TranslatorWindow(tk.Tk):
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(7, weight=1)
 
-        ttk.Label(frame, text="Sottotitoli").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="File o URL").grid(row=0, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.file_var).grid(
             row=0, column=1, padx=8, sticky="ew"
         )
@@ -102,6 +106,10 @@ class TranslatorWindow(tk.Tk):
             controls, text="Crea video IT", command=self._export_video
         )
         self.video_button.pack(side="left", padx=4)
+        self.overlay_button = ttk.Button(
+            controls, text="Overlay", command=self._toggle_overlay
+        )
+        self.overlay_button.pack(side="left", padx=4)
         ttk.Checkbutton(
             controls, text="Mostra testo", variable=self.show_text_var
         ).pack(side="left", padx=16)
@@ -130,7 +138,7 @@ class TranslatorWindow(tk.Tk):
 
     def _prepare(self) -> None:
         try:
-            path = Path(self.file_var.get())
+            path = self._resolve_input()
             cues = load_cues(path, whisper_model=self.whisper_var.get())
             if not cues:
                 raise ValueError("Nessuna battuta rilevata.")
@@ -181,9 +189,7 @@ class TranslatorWindow(tk.Tk):
 
     def _run_export(self, destination: str) -> None:
         try:
-            cues = load_cues(
-                Path(self.file_var.get()), whisper_model=self.whisper_var.get()
-            )
+            cues = load_cues(self._resolve_input(), whisper_model=self.whisper_var.get())
             output = export_italian_audio(
                 cues,
                 destination,
@@ -206,8 +212,8 @@ class TranslatorWindow(tk.Tk):
         messagebox.showinfo("Traccia creata", f"File salvato:\n{output}")
 
     def _export_video(self) -> None:
-        source = Path(self.file_var.get())
-        if source.suffix.lower() in {".srt", ".vtt"}:
+        source_value = self.file_var.get().strip()
+        if Path(source_value).suffix.lower() in {".srt", ".vtt"}:
             messagebox.showerror("Errore", "Seleziona il file video originale.")
             return
         destination = filedialog.asksaveasfilename(
@@ -220,12 +226,13 @@ class TranslatorWindow(tk.Tk):
         self.video_button.configure(state="disabled")
         threading.Thread(
             target=self._run_video_export,
-            args=(source, Path(destination)),
+            args=(source_value, Path(destination)),
             daemon=True,
         ).start()
 
-    def _run_video_export(self, source: Path, destination: Path) -> None:
+    def _run_video_export(self, source_value: str, destination: Path) -> None:
         try:
+            source = self._resolve_input()
             with tempfile.TemporaryDirectory(prefix="uvt-video-") as directory:
                 audio = Path(directory) / "italiano.wav"
                 cues = load_cues(source, whisper_model=self.whisper_var.get())
@@ -251,12 +258,28 @@ class TranslatorWindow(tk.Tk):
         self.status_var.set("Video italiano completato")
         messagebox.showinfo("Video creato", f"File salvato:\n{output}")
 
+    def _resolve_input(self) -> Path:
+        value = self.file_var.get().strip()
+        if not is_web_url(value):
+            return Path(value)
+        if self.download_directory is None:
+            self.download_directory = tempfile.TemporaryDirectory(prefix="uvt-url-")
+        self.after(0, self.status_var.set, "Download video…")
+        return download_video(value, self.download_directory.name)
+
+    def _toggle_overlay(self) -> None:
+        visible = self.overlay.toggle()
+        self.overlay_button.configure(
+            text="Nascondi overlay" if visible else "Overlay"
+        )
+
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
         if text in {"Completato", "Interrotto", "Errore"}:
             self._reset_controls()
 
     def _show_text(self, text: str) -> None:
+        self.overlay.show_text(text)
         if not self.show_text_var.get():
             return
         self.output.configure(state="normal")
@@ -275,6 +298,8 @@ class TranslatorWindow(tk.Tk):
     def _close(self) -> None:
         if self.player:
             self.player.stop()
+        if self.download_directory:
+            self.download_directory.cleanup()
         self.destroy()
 
 
