@@ -7,7 +7,7 @@ name = "universal-video-translator"
 version = "0.1.0"
 description = "Local subtitle translator and Italian text-to-speech player"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
   "requests>=2.31,<3",
   "pyttsx3>=2.90,<3",
