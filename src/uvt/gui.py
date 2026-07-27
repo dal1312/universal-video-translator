@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 from .cache import TranslationCache
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
+from .live import LiveTranslator
 from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
@@ -19,9 +20,10 @@ class TranslatorWindow(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Universal Video Translator")
-        self.geometry("760x500")
-        self.minsize(650, 430)
+        self.geometry("980x560")
+        self.minsize(850, 480)
         self.player: SubtitlePlayer | None = None
+        self.live: LiveTranslator | None = None
         self.download_directory: tempfile.TemporaryDirectory[str] | None = None
         self.overlay = SubtitleOverlay(self)
 
@@ -110,6 +112,10 @@ class TranslatorWindow(tk.Tk):
             controls, text="Overlay", command=self._toggle_overlay
         )
         self.overlay_button.pack(side="left", padx=4)
+        self.live_button = ttk.Button(
+            controls, text="Live PC", command=self._toggle_live
+        )
+        self.live_button.pack(side="left", padx=4)
         ttk.Checkbutton(
             controls, text="Mostra testo", variable=self.show_text_var
         ).pack(side="left", padx=16)
@@ -273,6 +279,24 @@ class TranslatorWindow(tk.Tk):
             text="Nascondi overlay" if visible else "Overlay"
         )
 
+    def _toggle_live(self) -> None:
+        if self.live and self.live.running:
+            self.live.stop()
+            self.live_button.configure(text="Live PC")
+            return
+        self.live = LiveTranslator(
+            translator=OllamaTranslator(model=self.model_var.get().strip()),
+            cache=TranslationCache(),
+            whisper_model=self.whisper_var.get(),
+            source_language=self.language_var.get(),
+            rate=self.rate_var.get(),
+            on_text=lambda text: self.after(0, self._show_text, text),
+            on_status=lambda text: self.after(0, self._set_status, text),
+            on_error=lambda error: self.after(0, self._show_error, error),
+        )
+        self.live.start()
+        self.live_button.configure(text="Stop Live")
+
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
         if text in {"Completato", "Interrotto", "Errore"}:
@@ -298,6 +322,8 @@ class TranslatorWindow(tk.Tk):
     def _close(self) -> None:
         if self.player:
             self.player.stop()
+        if self.live:
+            self.live.stop()
         if self.download_directory:
             self.download_directory.cleanup()
         self.destroy()
