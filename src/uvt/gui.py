@@ -3,6 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 import threading
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -14,6 +15,15 @@ from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .transcription import load_cues
+
+
+@dataclass(frozen=True, slots=True)
+class RunSettings:
+    source: str
+    ollama_model: str
+    whisper_model: str
+    language: str
+    rate: int
 
 
 class TranslatorWindow(tk.Tk):
@@ -140,20 +150,22 @@ class TranslatorWindow(tk.Tk):
     def _start(self) -> None:
         self.start_button.configure(state="disabled")
         self.status_var.set("Preparazione/trascrizione…")
-        threading.Thread(target=self._prepare, daemon=True).start()
+        threading.Thread(
+            target=self._prepare, args=(self._settings(),), daemon=True
+        ).start()
 
-    def _prepare(self) -> None:
+    def _prepare(self, settings: RunSettings) -> None:
         try:
-            path = self._resolve_input()
-            cues = load_cues(path, whisper_model=self.whisper_var.get())
+            path = self._resolve_input(settings.source)
+            cues = load_cues(path, whisper_model=settings.whisper_model)
             if not cues:
                 raise ValueError("Nessuna battuta rilevata.")
             self.player = SubtitlePlayer(
                 cues=cues,
-                translator=OllamaTranslator(model=self.model_var.get().strip()),
+                translator=OllamaTranslator(model=settings.ollama_model),
                 cache=TranslationCache(),
-                source_language=self.language_var.get(),
-                rate=self.rate_var.get(),
+                source_language=settings.language,
+                rate=settings.rate,
                 on_text=lambda text: self.after(0, self._show_text, text),
                 on_status=lambda text: self.after(0, self._set_status, text),
                 on_error=lambda error: self.after(0, self._show_error, error),
@@ -190,19 +202,24 @@ class TranslatorWindow(tk.Tk):
         self.export_button.configure(state="disabled")
         self.status_var.set("Preparazione esportazione…")
         threading.Thread(
-            target=self._run_export, args=(destination,), daemon=True
+            target=self._run_export,
+            args=(destination, self._settings()),
+            daemon=True,
         ).start()
 
-    def _run_export(self, destination: str) -> None:
+    def _run_export(self, destination: str, settings: RunSettings) -> None:
         try:
-            cues = load_cues(self._resolve_input(), whisper_model=self.whisper_var.get())
+            cues = load_cues(
+                self._resolve_input(settings.source),
+                whisper_model=settings.whisper_model,
+            )
             output = export_italian_audio(
                 cues,
                 destination,
-                translator=OllamaTranslator(model=self.model_var.get().strip()),
+                translator=OllamaTranslator(model=settings.ollama_model),
                 cache=TranslationCache(),
-                source_language=self.language_var.get(),
-                rate=self.rate_var.get(),
+                source_language=settings.language,
+                rate=settings.rate,
                 on_progress=lambda current, total: self.after(
                     0, self.status_var.set, f"Esportazione {current}/{total}"
                 ),
@@ -218,7 +235,8 @@ class TranslatorWindow(tk.Tk):
         messagebox.showinfo("Traccia creata", f"File salvato:\n{output}")
 
     def _export_video(self) -> None:
-        source_value = self.file_var.get().strip()
+        settings = self._settings()
+        source_value = settings.source
         if Path(source_value).suffix.lower() in {".srt", ".vtt"}:
             messagebox.showerror("Errore", "Seleziona il file video originale.")
             return
@@ -232,23 +250,25 @@ class TranslatorWindow(tk.Tk):
         self.video_button.configure(state="disabled")
         threading.Thread(
             target=self._run_video_export,
-            args=(source_value, Path(destination)),
+            args=(Path(destination), settings),
             daemon=True,
         ).start()
 
-    def _run_video_export(self, source_value: str, destination: Path) -> None:
+    def _run_video_export(
+        self, destination: Path, settings: RunSettings
+    ) -> None:
         try:
-            source = self._resolve_input()
+            source = self._resolve_input(settings.source)
             with tempfile.TemporaryDirectory(prefix="uvt-video-") as directory:
                 audio = Path(directory) / "italiano.wav"
-                cues = load_cues(source, whisper_model=self.whisper_var.get())
+                cues = load_cues(source, whisper_model=settings.whisper_model)
                 export_italian_audio(
                     cues,
                     audio,
-                    translator=OllamaTranslator(model=self.model_var.get().strip()),
+                    translator=OllamaTranslator(model=settings.ollama_model),
                     cache=TranslationCache(),
-                    source_language=self.language_var.get(),
-                    rate=self.rate_var.get(),
+                    source_language=settings.language,
+                    rate=settings.rate,
                     on_progress=lambda current, total: self.after(
                         0, self.status_var.set, f"Creazione video {current}/{total}"
                     ),
@@ -264,8 +284,7 @@ class TranslatorWindow(tk.Tk):
         self.status_var.set("Video italiano completato")
         messagebox.showinfo("Video creato", f"File salvato:\n{output}")
 
-    def _resolve_input(self) -> Path:
-        value = self.file_var.get().strip()
+    def _resolve_input(self, value: str) -> Path:
         if not is_web_url(value):
             return Path(value)
         if self.download_directory is None:
@@ -284,18 +303,28 @@ class TranslatorWindow(tk.Tk):
             self.live.stop()
             self.live_button.configure(text="Live PC")
             return
+        settings = self._settings()
         self.live = LiveTranslator(
-            translator=OllamaTranslator(model=self.model_var.get().strip()),
+            translator=OllamaTranslator(model=settings.ollama_model),
             cache=TranslationCache(),
-            whisper_model=self.whisper_var.get(),
-            source_language=self.language_var.get(),
-            rate=self.rate_var.get(),
+            whisper_model=settings.whisper_model,
+            source_language=settings.language,
+            rate=settings.rate,
             on_text=lambda text: self.after(0, self._show_text, text),
             on_status=lambda text: self.after(0, self._set_status, text),
             on_error=lambda error: self.after(0, self._show_error, error),
         )
         self.live.start()
         self.live_button.configure(text="Stop Live")
+
+    def _settings(self) -> RunSettings:
+        return RunSettings(
+            source=self.file_var.get().strip(),
+            ollama_model=self.model_var.get().strip() or "qwen3:4b",
+            whisper_model=self.whisper_var.get(),
+            language=self.language_var.get(),
+            rate=self.rate_var.get(),
+        )
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
