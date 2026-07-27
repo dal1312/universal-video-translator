@@ -69,10 +69,19 @@ ollama serve
 
 ## Avvio del prototipo
 
-Quando il file dell'applicazione sarà presente nel repository:
+Installazione e avvio dell'interfaccia grafica:
 
 ```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
 python universal_video_translator.py
+```
+
+Avvio alternativo da terminale:
+
+```powershell
+uvt-cli sottotitoli.srt --show-text
 ```
 
 Se Ollama è già in esecuzione come servizio, non è necessario avviare manualmente `ollama serve`.
@@ -95,9 +104,10 @@ Questi valori saranno resi configurabili dall'interfaccia e da un file di config
 - [x] traduzione tramite Ollama;
 - [x] sintesi vocale Windows;
 - [x] sincronizzazione di base;
-- [ ] struttura modulare del progetto;
-- [ ] test automatici;
-- [ ] gestione robusta degli errori.
+- [x] struttura modulare del progetto;
+- [x] interfaccia grafica Windows;
+- [x] test automatici iniziali;
+- [x] gestione robusta degli errori.
 
 ### Fase 2 — Trascrizione e audio
 
