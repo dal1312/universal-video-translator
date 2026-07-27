@@ -162,3 +162,11 @@ BUILD_EXE_WINDOWS.bat
 ```
 
 Il file risultante viene creato in `dist\UniversalVideoTranslator.exe`.
+
+## Verifica rapida
+
+```powershell
+VERIFICA_WINDOWS.bat
+```
+
+Per una prova immediata seleziona `examples\demo.srt` dall'interfaccia.
