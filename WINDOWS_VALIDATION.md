@@ -1,7 +1,7 @@
 # Windows Validation
 
 Date: 2026-07-28  
-Status: **PASS**
+Status: **PASS — EXE BUILT AND LAUNCHED**
 
 ## Environment
 
@@ -19,3 +19,9 @@ Status: **PASS**
 ```
 
 The source code, automated tests, FFmpeg installation, Ollama installation and required model passed `VERIFICA_WINDOWS.bat`.
+
+## Executable
+
+- PyInstaller build: PASS
+- Output: `dist\UniversalVideoTranslator.exe`
+- Application launch on Windows: PASS
