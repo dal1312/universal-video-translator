@@ -1,0 +1,167 @@
+from __future__ import annotations
+
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+
+from .cache import TranslationCache
+from .ollama import OllamaTranslator
+from .player import SubtitlePlayer
+from .subtitles import load_subtitles
+
+
+class TranslatorWindow(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("Universal Video Translator")
+        self.geometry("760x500")
+        self.minsize(650, 430)
+        self.player: SubtitlePlayer | None = None
+
+        self.file_var = tk.StringVar()
+        self.model_var = tk.StringVar(value="qwen3:4b")
+        self.language_var = tk.StringVar(value="auto")
+        self.rate_var = tk.IntVar(value=185)
+        self.show_text_var = tk.BooleanVar(value=True)
+        self.status_var = tk.StringVar(value="Pronto")
+        self._build()
+        self.protocol("WM_DELETE_WINDOW", self._close)
+
+    def _build(self) -> None:
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
+        frame.rowconfigure(6, weight=1)
+
+        ttk.Label(frame, text="Sottotitoli").grid(row=0, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.file_var).grid(
+            row=0, column=1, padx=8, sticky="ew"
+        )
+        ttk.Button(frame, text="Sfoglia…", command=self._browse).grid(
+            row=0, column=2
+        )
+
+        ttk.Label(frame, text="Modello Ollama").grid(
+            row=1, column=0, pady=(12, 0), sticky="w"
+        )
+        ttk.Entry(frame, textvariable=self.model_var).grid(
+            row=1, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
+        )
+
+        ttk.Label(frame, text="Lingua originale").grid(
+            row=2, column=0, pady=(12, 0), sticky="w"
+        )
+        ttk.Combobox(
+            frame,
+            textvariable=self.language_var,
+            values=("auto", "inglese", "spagnolo", "francese", "tedesco"),
+            state="readonly",
+        ).grid(row=2, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
+
+        ttk.Label(frame, text="Velocità voce").grid(
+            row=3, column=0, pady=(12, 0), sticky="w"
+        )
+        ttk.Scale(
+            frame, from_=120, to=260, variable=self.rate_var, orient="horizontal"
+        ).grid(row=3, column=1, padx=8, pady=(12, 0), sticky="ew")
+        ttk.Label(frame, textvariable=self.rate_var, width=4).grid(
+            row=3, column=2, pady=(12, 0)
+        )
+
+        controls = ttk.Frame(frame)
+        controls.grid(row=4, column=0, columnspan=3, pady=18)
+        self.start_button = ttk.Button(controls, text="Avvia", command=self._start)
+        self.start_button.pack(side="left", padx=4)
+        self.pause_button = ttk.Button(
+            controls, text="Pausa", command=self._pause, state="disabled"
+        )
+        self.pause_button.pack(side="left", padx=4)
+        self.stop_button = ttk.Button(
+            controls, text="Stop", command=self._stop, state="disabled"
+        )
+        self.stop_button.pack(side="left", padx=4)
+        ttk.Checkbutton(
+            controls, text="Mostra testo", variable=self.show_text_var
+        ).pack(side="left", padx=16)
+
+        ttk.Label(frame, textvariable=self.status_var).grid(
+            row=5, column=0, columnspan=3, sticky="w"
+        )
+        self.output = tk.Text(frame, wrap="word", height=10, state="disabled")
+        self.output.grid(row=6, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
+
+    def _browse(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona sottotitoli",
+            filetypes=(("Sottotitoli", "*.srt *.vtt"), ("Tutti i file", "*.*")),
+        )
+        if path:
+            self.file_var.set(path)
+
+    def _start(self) -> None:
+        try:
+            path = Path(self.file_var.get())
+            cues = load_subtitles(path)
+            if not cues:
+                raise ValueError("Il file non contiene sottotitoli validi.")
+            self.player = SubtitlePlayer(
+                cues=cues,
+                translator=OllamaTranslator(model=self.model_var.get().strip()),
+                cache=TranslationCache(),
+                source_language=self.language_var.get(),
+                rate=self.rate_var.get(),
+                on_text=lambda text: self.after(0, self._show_text, text),
+                on_status=lambda text: self.after(0, self._set_status, text),
+                on_error=lambda error: self.after(0, self._show_error, error),
+            )
+            self.start_button.configure(state="disabled")
+            self.pause_button.configure(state="normal")
+            self.stop_button.configure(state="normal")
+            self.player.start()
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Universal Video Translator", str(exc))
+
+    def _pause(self) -> None:
+        if self.player:
+            paused = self.player.toggle_pause()
+            self.pause_button.configure(text="Riprendi" if paused else "Pausa")
+
+    def _stop(self) -> None:
+        if self.player:
+            self.player.stop()
+        self._reset_controls()
+
+    def _set_status(self, text: str) -> None:
+        self.status_var.set(text)
+        if text in {"Completato", "Interrotto", "Errore"}:
+            self._reset_controls()
+
+    def _show_text(self, text: str) -> None:
+        if not self.show_text_var.get():
+            return
+        self.output.configure(state="normal")
+        self.output.insert("end", text + "\n\n")
+        self.output.see("end")
+        self.output.configure(state="disabled")
+
+    def _show_error(self, error: Exception) -> None:
+        messagebox.showerror("Errore", str(error))
+
+    def _reset_controls(self) -> None:
+        self.start_button.configure(state="normal")
+        self.pause_button.configure(state="disabled", text="Pausa")
+        self.stop_button.configure(state="disabled")
+
+    def _close(self) -> None:
+        if self.player:
+            self.player.stop()
+        self.destroy()
+
+
+def main() -> int:
+    TranslatorWindow().mainloop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
