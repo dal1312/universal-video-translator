@@ -16,6 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8,<9"]
 audio = ["faster-whisper>=1.1,<2"]
+youtube = ["yt-dlp"]
+all = ["faster-whisper>=1.1,<2", "yt-dlp"]
 
 [project.scripts]
 universal-video-translator = "uvt.gui:main"
