@@ -129,7 +129,7 @@ Questi valori saranno resi configurabili dall'interfaccia e da un file di config
 ### Fase 3 — Uso universale
 
 - [x] overlay desktop indipendente dal browser;
-- [ ] cattura dell'audio di sistema;
+- [x] cattura loopback dell'audio di sistema Windows;
 - [x] URL YouTube tramite yt-dlp e player locali;
 - [x] esportazione WAV/MP3 della traccia audio italiana;
 - [ ] pacchetto installabile per Windows.
@@ -144,7 +144,7 @@ L'obiettivo principale è consentire una modalità locale: video, sottotitoli, t
 - richiede sottotitoli SRT/VTT già disponibili;
 - la qualità della voce dipende dalle voci installate in Windows;
 - la sincronizzazione è ancora sperimentale;
-- installer grafico `.exe` non ancora disponibile; sono inclusi gli script Windows.
+- build `.exe` disponibile tramite `BUILD_EXE_WINDOWS.bat`; il binario va generato e verificato su Windows.
 
 ## Licenza
 
@@ -153,3 +153,12 @@ La licenza del progetto non è ancora stata definita. Prima della distribuzione 
 ## Autore
 
 Progetto sviluppato da [dal1312](https://github.com/dal1312).
+
+## Build EXE Windows
+
+```powershell
+INSTALL_WINDOWS.bat
+BUILD_EXE_WINDOWS.bat
+```
+
+Il file risultante viene creato in `dist\UniversalVideoTranslator.exe`.
