@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+from pathlib import Path
+from urllib.parse import urlparse
+
+
+class DownloadError(RuntimeError):
+    pass
+
+
+def is_web_url(value: str) -> bool:
+    parsed = urlparse(value.strip())
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def download_video(url: str, directory: str | Path) -> Path:
+    if not is_web_url(url):
+        raise DownloadError("URL non valido.")
+    try:
+        import yt_dlp
+    except ImportError as exc:
+        raise DownloadError(
+            "yt-dlp non installato. Esegui: pip install -e .[youtube]"
+        ) from exc
+
+    target = Path(directory)
+    target.mkdir(parents=True, exist_ok=True)
+    options = {
+        "format": "bv*+ba/b",
+        "outtmpl": str(target / "%(id)s.%(ext)s"),
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(options) as downloader:
+            info = downloader.extract_info(url, download=True)
+            prepared = Path(downloader.prepare_filename(info))
+            candidates = [
+                path
+                for path in (
+                    prepared,
+                    prepared.with_suffix(".mp4"),
+                    prepared.with_suffix(".mkv"),
+                    prepared.with_suffix(".webm"),
+                )
+                if path.exists()
+            ]
+    except Exception as exc:
+        raise DownloadError(f"Download non riuscito: {exc}") from exc
+    if not candidates:
+        raise DownloadError("yt-dlp non ha prodotto un file video.")
+    return max(candidates, key=lambda path: path.stat().st_size)
