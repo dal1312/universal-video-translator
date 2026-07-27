@@ -54,7 +54,16 @@ Riproduzione sincronizzata / traccia audio
 - [Ollama](https://ollama.com/);
 - una voce italiana installata nel sistema.
 
-Dipendenze Python del prototipo:
+Installazione rapida su Windows:
+
+```powershell
+INSTALL_WINDOWS.bat
+AVVIA_WINDOWS.bat
+```
+
+Per tradurre direttamente video o audio servono anche FFmpeg e il gruppo dipendenze `audio`.
+
+Installazione manuale:
 
 ```powershell
 pip install requests pyttsx3
@@ -74,7 +83,7 @@ Installazione e avvio dell'interfaccia grafica:
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e .
+pip install -e ".[audio]"
 python universal_video_translator.py
 ```
 
@@ -111,10 +120,10 @@ Questi valori saranno resi configurabili dall'interfaccia e da un file di config
 
 ### Fase 2 — Trascrizione e audio
 
-- [ ] estrazione audio con FFmpeg;
-- [ ] trascrizione locale con Whisper;
-- [ ] rilevamento automatico della lingua;
-- [ ] segmentazione e sincronizzazione migliorata;
+- [x] estrazione audio con FFmpeg;
+- [x] trascrizione locale con Whisper;
+- [x] rilevamento automatico della lingua;
+- [x] segmentazione con VAD e sincronizzazione di base;
 - [ ] voci italiane locali di qualità superiore.
 
 ### Fase 3 — Uso universale
