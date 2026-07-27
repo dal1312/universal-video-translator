@@ -131,7 +131,7 @@ Questi valori saranno resi configurabili dall'interfaccia e da un file di config
 - [ ] overlay desktop indipendente dal browser;
 - [ ] cattura dell'audio di sistema;
 - [ ] supporto a video YouTube e player locali;
-- [ ] esportazione della traccia audio italiana;
+- [x] esportazione WAV/MP3 della traccia audio italiana;
 - [ ] pacchetto installabile per Windows.
 
 ## Privacy
@@ -144,7 +144,7 @@ L'obiettivo principale è consentire una modalità locale: video, sottotitoli, t
 - richiede sottotitoli SRT/VTT già disponibili;
 - la qualità della voce dipende dalle voci installate in Windows;
 - la sincronizzazione è ancora sperimentale;
-- non è ancora disponibile un installer.
+- installer grafico `.exe` non ancora disponibile; sono inclusi gli script Windows.
 
 ## Licenza
 
