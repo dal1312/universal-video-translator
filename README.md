@@ -50,7 +50,7 @@ Riproduzione sincronizzata / traccia audio
 ## Requisiti iniziali
 
 - Windows 10 o 11;
-- Python 3.11 o superiore;
+- Python 3.10 o superiore;
 - [Ollama](https://ollama.com/);
 - una voce italiana installata nel sistema.
 
