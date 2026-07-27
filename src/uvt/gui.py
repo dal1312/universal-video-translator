@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import tkinter as tk
+import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .cache import TranslationCache
 from .ollama import OllamaTranslator
 from .player import SubtitlePlayer
-from .subtitles import load_subtitles
+from .transcription import load_cues
 
 
 class TranslatorWindow(tk.Tk):
@@ -22,6 +23,7 @@ class TranslatorWindow(tk.Tk):
         self.model_var = tk.StringVar(value="qwen3:4b")
         self.language_var = tk.StringVar(value="auto")
         self.rate_var = tk.IntVar(value=185)
+        self.whisper_var = tk.StringVar(value="small")
         self.show_text_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Pronto")
         self._build()
@@ -31,7 +33,7 @@ class TranslatorWindow(tk.Tk):
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(6, weight=1)
+        frame.rowconfigure(7, weight=1)
 
         ttk.Label(frame, text="Sottotitoli").grid(row=0, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.file_var).grid(
@@ -48,28 +50,38 @@ class TranslatorWindow(tk.Tk):
             row=1, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
         )
 
-        ttk.Label(frame, text="Lingua originale").grid(
+        ttk.Label(frame, text="Modello Whisper").grid(
             row=2, column=0, pady=(12, 0), sticky="w"
+        )
+        ttk.Combobox(
+            frame,
+            textvariable=self.whisper_var,
+            values=("tiny", "base", "small", "medium"),
+            state="readonly",
+        ).grid(row=2, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
+
+        ttk.Label(frame, text="Lingua originale").grid(
+            row=3, column=0, pady=(12, 0), sticky="w"
         )
         ttk.Combobox(
             frame,
             textvariable=self.language_var,
             values=("auto", "inglese", "spagnolo", "francese", "tedesco"),
             state="readonly",
-        ).grid(row=2, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
+        ).grid(row=3, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
 
         ttk.Label(frame, text="Velocità voce").grid(
-            row=3, column=0, pady=(12, 0), sticky="w"
+            row=4, column=0, pady=(12, 0), sticky="w"
         )
         ttk.Scale(
             frame, from_=120, to=260, variable=self.rate_var, orient="horizontal"
-        ).grid(row=3, column=1, padx=8, pady=(12, 0), sticky="ew")
+        ).grid(row=4, column=1, padx=8, pady=(12, 0), sticky="ew")
         ttk.Label(frame, textvariable=self.rate_var, width=4).grid(
-            row=3, column=2, pady=(12, 0)
+            row=4, column=2, pady=(12, 0)
         )
 
         controls = ttk.Frame(frame)
-        controls.grid(row=4, column=0, columnspan=3, pady=18)
+        controls.grid(row=5, column=0, columnspan=3, pady=18)
         self.start_button = ttk.Button(controls, text="Avvia", command=self._start)
         self.start_button.pack(side="left", padx=4)
         self.pause_button = ttk.Button(
@@ -85,25 +97,33 @@ class TranslatorWindow(tk.Tk):
         ).pack(side="left", padx=16)
 
         ttk.Label(frame, textvariable=self.status_var).grid(
-            row=5, column=0, columnspan=3, sticky="w"
+            row=6, column=0, columnspan=3, sticky="w"
         )
         self.output = tk.Text(frame, wrap="word", height=10, state="disabled")
-        self.output.grid(row=6, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
+        self.output.grid(row=7, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
 
     def _browse(self) -> None:
         path = filedialog.askopenfilename(
             title="Seleziona sottotitoli",
-            filetypes=(("Sottotitoli", "*.srt *.vtt"), ("Tutti i file", "*.*")),
+            filetypes=(
+                ("Video, audio o sottotitoli", "*.mp4 *.mkv *.webm *.mp3 *.wav *.m4a *.srt *.vtt"),
+                ("Tutti i file", "*.*"),
+            ),
         )
         if path:
             self.file_var.set(path)
 
     def _start(self) -> None:
+        self.start_button.configure(state="disabled")
+        self.status_var.set("Preparazione/trascrizione…")
+        threading.Thread(target=self._prepare, daemon=True).start()
+
+    def _prepare(self) -> None:
         try:
             path = Path(self.file_var.get())
-            cues = load_subtitles(path)
+            cues = load_cues(path, whisper_model=self.whisper_var.get())
             if not cues:
-                raise ValueError("Il file non contiene sottotitoli validi.")
+                raise ValueError("Nessuna battuta rilevata.")
             self.player = SubtitlePlayer(
                 cues=cues,
                 translator=OllamaTranslator(model=self.model_var.get().strip()),
@@ -114,12 +134,16 @@ class TranslatorWindow(tk.Tk):
                 on_status=lambda text: self.after(0, self._set_status, text),
                 on_error=lambda error: self.after(0, self._show_error, error),
             )
-            self.start_button.configure(state="disabled")
-            self.pause_button.configure(state="normal")
-            self.stop_button.configure(state="normal")
+            self.after(0, self._begin_playback)
+        except Exception as exc:
+            self.after(0, self._show_error, exc)
+            self.after(0, self._reset_controls)
+
+    def _begin_playback(self) -> None:
+        self.pause_button.configure(state="normal")
+        self.stop_button.configure(state="normal")
+        if self.player:
             self.player.start()
-        except (OSError, ValueError) as exc:
-            messagebox.showerror("Universal Video Translator", str(exc))
 
     def _pause(self) -> None:
         if self.player:
