@@ -22,7 +22,7 @@ class SubtitleOverlay(tk.Toplevel):
             pady=14,
         )
         self.label.pack(fill="both", expand=True)
-        self.geometry("+160+760")
+        self.geometry("+160+650")
         self.bind("<ButtonPress-1>", self._drag_start)
         self.bind("<B1-Motion>", self._drag_move)
         self._drag_x = self._drag_y = 0
