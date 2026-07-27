@@ -34,7 +34,7 @@ class TranslatorWindow(tk.Tk):
         self.minsize(850, 480)
         self.player: SubtitlePlayer | None = None
         self.live: LiveTranslator | None = None
-        self.download_directory: tempfile.TemporaryDirectory[str] | None = None
+        self.download_directory: tempfile.TemporaryDirectory | None = None
         self.overlay = SubtitleOverlay(self)
 
         self.file_var = tk.StringVar()
