@@ -1,177 +1,134 @@
 # Universal Video Translator
 
-Applicazione desktop locale per tradurre in italiano i sottotitoli di un video e riprodurli come voce sintetizzata, sincronizzata con le battute originali.
+Applicazione desktop Windows per tradurre video in italiano e riprodurre una voce sintetizzata sincronizzata con le battute originali. La pipeline usa sottotitoli esistenti quando disponibili e Faster-Whisper come fallback.
 
-> Stato del progetto: prototipo iniziale. La prima versione lavora con file di sottotitoli `.srt` e `.vtt`; l'acquisizione automatica dell'audio, la trascrizione con Whisper e il doppiaggio completo saranno aggiunti nelle fasi successive.
+> Stato: **v0.1.0 funzionante**. Supporta video locali, file SRT/VTT, URL YouTube, riproduzione progressiva, esportazione audio/video e modalità Live PC.
 
-## Obiettivo
+## Funzioni
 
-Universal Video Translator nasce per rendere comprensibili in italiano video YouTube, contenuti riprodotti nel browser e file video locali, mantenendo l'elaborazione sul proprio computer quando possibile.
-
-La pipeline prevista è:
-
-1. acquisizione dei sottotitoli o trascrizione dell'audio;
-2. traduzione naturale in italiano;
-3. generazione della voce italiana;
-4. riproduzione sincronizzata con il video;
-5. opzionale creazione di una nuova traccia audio.
-
-## Funzioni disponibili nel prototipo
-
-- caricamento di sottotitoli `.srt` e `.vtt`;
-- traduzione in italiano tramite Ollama;
-- modello locale selezionabile da una tendina popolata tramite Ollama, con `translategemma:latest` come valore iniziale;
-- sintesi vocale locale Kokoro-82M con Sara e Nicola;
+- URL YouTube tramite yt-dlp e cookie del browser;
+- video e audio locali;
+- priorità ai sottotitoli del video, con selezione automatica della lingua nativa;
+- trascrizione locale con Faster-Whisper quando i sottotitoli non sono disponibili;
+- traduzione italiana locale tramite Ollama;
+- scelta del modello Ollama dalla GUI, con `translategemma:latest` predefinito;
+- sintesi vocale Kokoro-82M con Sara e Nicola;
 - fallback alle voci installate in Windows;
-- sincronizzazione della lettura con i timestamp dei sottotitoli;
-- comandi Avvia, Pausa e Stop;
-- scelta della lingua sorgente oppure rilevamento automatico;
-- possibilità di nascondere il testo tradotto;
-- regolazione della velocità della voce;
+- buffer progressivo per iniziare la riproduzione senza attendere l’intero video;
+- pulizia dei sottotitoli YouTube progressivi per evitare ripetizioni ed eco;
+- coda vocale serializzata per impedire sovrapposizioni;
+- player video ridimensionabile con Avvia, Pausa e Stop;
+- tema scuro e menu contestuale per incollare i collegamenti;
+- testo tradotto, overlay desktop e modalità Live PC;
+- esportazione WAV/MP3 e creazione di un MP4 con traccia italiana;
 - cache locale delle traduzioni.
 
-## Architettura prevista
+## Pipeline
 
 ```text
-Video / Browser / File
-        |
-        v
-Sottotitoli esistenti oppure Whisper
-        |
-        v
-Traduzione locale con Ollama
-        |
-        v
-Sintesi vocale italiana
-        |
-        v
-Riproduzione sincronizzata / traccia audio
+Video / YouTube / SRT / VTT
+            |
+            v
+Sottotitoli esistenti oppure Faster-Whisper
+            |
+            v
+Traduzione italiana con Ollama
+            |
+            v
+Voce Kokoro o Windows
+            |
+            v
+Player sincronizzato / esportazione audio-video
 ```
 
-## Requisiti iniziali
+## Requisiti Windows
 
 - Windows 10 o 11;
-- Python 3.10 o superiore;
-- [Ollama](https://ollama.com/);
-- una voce italiana installata nel sistema.
+- Python 3.10 o superiore; Python 3.11+ consigliato;
+- [Ollama](https://ollama.com/download/windows);
+- FFmpeg completo di `ffmpeg`, `ffprobe` e `ffplay` nel PATH;
+- eSpeak NG x64 per le voci Kokoro;
+- spazio disponibile per dipendenze, modelli Ollama e Kokoro.
 
-Installazione rapida su Windows:
+## Installazione rapida
+
+Apri PowerShell nella cartella del progetto:
 
 ```powershell
-INSTALL_WINDOWS.bat
-AVVIA_WINDOWS.bat
+.\INSTALL_WINDOWS.bat
+.\VERIFICA_WINDOWS.bat
+.\AVVIA_WINDOWS.bat
 ```
 
-Per tradurre direttamente video o audio servono anche FFmpeg e il gruppo dipendenze `audio`.
+`INSTALL_WINDOWS.bat` crea `.venv`, installa tutte le dipendenze e scarica `translategemma:latest` tramite Ollama.
 
-Installazione manuale:
+Al primo utilizzo di Kokoro viene scaricato anche il modello `hexgrad/Kokoro-82M`.
+
+## Avvio manuale
 
 ```powershell
-pip install requests pyttsx3
+.\.venv\Scripts\python.exe .\universal_video_translator.py
 ```
 
-Preparazione di Ollama:
+Se Ollama non è già attivo:
 
 ```powershell
-ollama pull translategemma:latest
 ollama serve
 ```
 
-## Avvio del prototipo
+## Utilizzo
 
-Installazione e avvio dell'interfaccia grafica:
+1. Inserisci un URL YouTube oppure seleziona un video, audio, SRT o VTT.
+2. Scegli modello Ollama, lingua originale, motore e voce.
+3. Premi **Avvia**.
+4. Usa **Esporta audio** o **Crea video IT** per salvare il risultato.
+
+Per YouTube lascia normalmente la lingua su `auto`. Se il sito richiede autenticazione, seleziona il browser nel quale hai effettuato l’accesso.
+
+## Build EXE Windows
+
+Dopo una verifica completata:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e ".[all]"
-python universal_video_translator.py
+.\BUILD_EXE_WINDOWS.bat
 ```
 
-Avvio alternativo da terminale:
-
-```powershell
-uvt-cli sottotitoli.srt --show-text
-```
-
-Se Ollama è già in esecuzione come servizio, non è necessario avviare manualmente `ollama serve`.
-
-## Configurazione predefinita
+L’applicazione viene creata in:
 
 ```text
-Ollama API: http://127.0.0.1:11434/api/chat
-Modello:    translategemma:latest
-Output:     italiano
+dist\UniversalVideoTranslator\UniversalVideoTranslator.exe
 ```
 
-Questi valori saranno resi configurabili dall'interfaccia e da un file di configurazione.
+La build è `onedir`: per distribuirla occorre comprimere e copiare **l’intera cartella** `dist\UniversalVideoTranslator`, non soltanto il file EXE.
 
-## Roadmap
+Ollama e il modello di traduzione restano componenti esterni e devono essere disponibili sul PC che esegue l’applicazione.
 
-### Fase 1 — Prototipo locale
+## Verifica
 
-- [x] lettura SRT/VTT;
-- [x] traduzione tramite Ollama;
-- [x] sintesi vocale Windows;
-- [x] sincronizzazione di base;
-- [x] struttura modulare del progetto;
-- [x] interfaccia grafica Windows;
-- [x] test automatici iniziali;
-- [x] gestione robusta degli errori.
+```powershell
+.\VERIFICA_WINDOWS.bat
+```
 
-### Fase 2 — Trascrizione e audio
+La verifica controlla sintassi, test automatici, FFmpeg, eSpeak NG, Kokoro, Ollama e il modello predefinito.
 
-- [x] estrazione audio con FFmpeg;
-- [x] trascrizione locale con Whisper;
-- [x] rilevamento automatico della lingua;
-- [x] segmentazione con VAD e sincronizzazione di base;
-- [ ] voci italiane locali di qualità superiore.
+Per una prova rapida usa `examples\demo.srt`. Prima di distribuire una build verifica anche un video locale e un URL YouTube.
 
-### Fase 3 — Uso universale
+## Dati e privacy
 
-- [x] overlay desktop indipendente dal browser;
-- [x] cattura loopback dell'audio di sistema Windows;
-- [x] URL YouTube tramite yt-dlp e player locali;
-- [x] esportazione WAV/MP3 della traccia audio italiana;
-- [ ] pacchetto installabile per Windows.
+Traduzione, trascrizione e sintesi vocale vengono eseguite localmente. Le connessioni esterne servono per scaricare video, dipendenze e modelli. La cache delle traduzioni è salvata localmente in `.uvt-cache.json`.
 
-## Privacy
+## Limiti noti
 
-L'obiettivo principale è consentire una modalità locale: video, sottotitoli, traduzioni e audio possono restare sul PC dell'utente. Eventuali provider cloud saranno opzionali e separati dalla pipeline locale.
-
-## Limiti attuali
-
-- non traduce ancora direttamente l'audio del video;
-- richiede sottotitoli SRT/VTT già disponibili;
-- la qualità della voce dipende dalle voci installate in Windows;
-- la sincronizzazione è ancora sperimentale;
-- build `.exe` disponibile tramite `BUILD_EXE_WINDOWS.bat`; il binario va generato e verificato su Windows.
+- la qualità della traduzione dipende dal modello Ollama selezionato;
+- il primo avvio di Kokoro richiede il download del modello;
+- YouTube può richiedere cookie validi e può modificare i propri sistemi di accesso;
+- velocità di preparazione e ritardo dipendono dalle prestazioni del PC;
+- la v0.1.0 è una distribuzione portatile, non un installer MSI/Setup.
 
 ## Licenza
 
-La licenza del progetto non è ancora stata definita. Prima della distribuzione pubblica verrà aggiunto un file `LICENSE`.
+Distribuito con licenza [Apache 2.0](LICENSE).
 
 ## Autore
 
 Progetto sviluppato da [dal1312](https://github.com/dal1312).
-
-## Build EXE Windows
-
-```powershell
-INSTALL_WINDOWS.bat
-BUILD_EXE_WINDOWS.bat
-```
-
-Il file risultante viene creato in `dist\UniversalVideoTranslator\UniversalVideoTranslator.exe`.
-
-## Verifica rapida
-
-```powershell
-VERIFICA_WINDOWS.bat
-```
-
-Per una prova immediata seleziona `examples\demo.srt` dall'interfaccia.
-
-## Voci italiane
-
-La GUI permette di scegliere `Kokoro` o `Windows`. Kokoro usa le voci italiane `Sara` (`if_sara`) e `Nicola` (`im_nicola`). Al primo utilizzo scarica localmente il modello; su Windows richiede eSpeak NG.
