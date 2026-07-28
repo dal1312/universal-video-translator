@@ -42,6 +42,7 @@ def export_italian_audio(
         segments: list[Path] = []
         translated_by_text: dict[str, str] = {}
         missing: list[str] = []
+        missing_seen: set[str] = set()
 
         for cue in cues:
             if cue.text in translated_by_text:
@@ -49,8 +50,9 @@ def export_italian_audio(
             translated = cache.get(translator.model, source_language, cue.text)
             if translated is not None:
                 translated_by_text[cue.text] = translated
-            else:
+            elif cue.text not in missing_seen:
                 missing.append(cue.text)
+                missing_seen.add(cue.text)
 
         for offset in range(0, len(missing), TRANSLATION_BATCH_SIZE):
             texts = missing[offset : offset + TRANSLATION_BATCH_SIZE]
