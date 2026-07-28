@@ -61,3 +61,22 @@ def test_answer_uses_user_instruction_and_screen_context() -> None:
     prompt = payload["messages"][1]["content"]
     assert "Spiegami l'errore" in prompt
     assert "ValueError alla riga 42" in prompt
+
+
+def test_answer_includes_recent_memory() -> None:
+    translator = OllamaTranslator()
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"message": {"content": "Continuazione"}}
+    translator._session.post = Mock(return_value=response)
+
+    translator.answer(
+        "Continua",
+        "Nuovo testo",
+        history=[("Domanda precedente", "Risposta precedente")],
+    )
+
+    messages = translator._session.post.call_args.kwargs["json"]["messages"]
+    assert any("Domanda precedente" in item["content"] for item in messages)
+    assert any("Risposta precedente" in item["content"] for item in messages)
