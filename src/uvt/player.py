@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from .cache import TranslationCache
 from .subtitles import Cue
+from .tts import create_speech_engine
 
 if TYPE_CHECKING:
     from .ollama import OllamaTranslator
@@ -20,6 +21,8 @@ class SubtitlePlayer:
         cache: TranslationCache,
         source_language: str = "auto",
         rate: int = 185,
+        speech_engine: str = "windows",
+        voice: str = "default",
         sync: bool = True,
         on_text: Callable[[str], None] | None = None,
         on_status: Callable[[str], None] | None = None,
@@ -30,6 +33,8 @@ class SubtitlePlayer:
         self.cache = cache
         self.source_language = source_language
         self.rate = rate
+        self.speech_engine = speech_engine
+        self.voice = voice
         self.sync = sync
         self.on_text = on_text or (lambda _text: None)
         self.on_status = on_status or (lambda _status: None)
@@ -88,10 +93,9 @@ class SubtitlePlayer:
 
     def _run(self) -> None:
         try:
-            import pyttsx3
-
-            self._engine = pyttsx3.init()
-            self._engine.setProperty("rate", self.rate)
+            self._engine = create_speech_engine(
+                self.speech_engine, self.voice, self.rate
+            )
             started = time.monotonic()
             self.on_status("Riproduzione")
 
@@ -117,8 +121,7 @@ class SubtitlePlayer:
                     )
                 self.on_text(translated)
                 self.on_status(f"Battuta {position}/{len(self.cues)}")
-                self._engine.say(translated)
-                self._engine.runAndWait()
+                self._engine.speak(translated)
 
             self.on_status("Interrotto" if self._stop.is_set() else "Completato")
         except Exception as exc:
