@@ -12,7 +12,12 @@ from .assistant_window import AssistantWindow
 from .assistant_memory import AssistantMemory
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
-from .live import LiveTranslator, capture_device_names
+from .live import (
+    LiveTranslator,
+    capture_device_names,
+    initialize_windows_com,
+    uninitialize_windows_com,
+)
 from .media_player import MediaPreview
 from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
@@ -24,7 +29,11 @@ from .screen_assistant import (
     extract_text,
 )
 from .transcription import load_cues
-from .tts import KOKORO_VOICES, windows_voice_names
+from .tts import (
+    KOKORO_VOICES,
+    create_speech_engine,
+    windows_voice_names,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,9 +69,13 @@ class TranslatorWindow(tk.Tk):
             self._ask_assistant,
             self.assistant_memory.formatted_history,
             self.assistant_memory.clear,
+            self._speak_assistant_result,
+            self._save_assistant_screenshot,
         )
         self.hotkey = GlobalHotkey(self._capture_for_assistant)
         self._assistant_busy = threading.Lock()
+        self._assistant_voice_busy = threading.Lock()
+        self._last_screen_image: object | None = None
 
         self.file_var = tk.StringVar()
         self.model_var = tk.StringVar(value="translategemma:latest")
@@ -887,6 +900,7 @@ class TranslatorWindow(tk.Tk):
     def _run_screen_capture(self) -> None:
         try:
             capture = capture_active_window()
+            self._last_screen_image = capture.image
             self.after(
                 0, self.assistant.open_loading, capture.title
             )
@@ -931,6 +945,65 @@ class TranslatorWindow(tk.Tk):
             )
         except Exception as exc:
             self.after(0, self.assistant.show_error, exc)
+
+    def _save_assistant_screenshot(self) -> None:
+        if self._last_screen_image is None:
+            messagebox.showerror(
+                "Screenshot", "Nessuna schermata acquisita."
+            )
+            return
+        destination = filedialog.asksaveasfilename(
+            title="Salva schermata",
+            defaultextension=".png",
+            filetypes=(("Immagine PNG", "*.png"),),
+        )
+        if not destination:
+            return
+        try:
+            self._last_screen_image.save(destination, format="PNG")
+            self.status_var.set(f"Screenshot salvato: {destination}")
+        except Exception as exc:
+            self._show_error(exc)
+
+    def _speak_assistant_result(self, text: str) -> None:
+        if not self._assistant_voice_busy.acquire(blocking=False):
+            return
+        settings = self._settings()
+        threading.Thread(
+            target=self._run_assistant_voice,
+            args=(
+                text,
+                settings.speech_engine,
+                settings.voice,
+                settings.rate,
+            ),
+            name="uvt-assistant-voice",
+            daemon=True,
+        ).start()
+
+    def _run_assistant_voice(
+        self, text: str, engine_name: str, voice: str, rate: int
+    ) -> None:
+        com_initialized = False
+        engine = None
+        try:
+            com_initialized = initialize_windows_com()
+            engine = create_speech_engine(engine_name, voice, rate)
+            engine.speak(text)
+            self.after(
+                0, self.assistant.set_busy, False, "Lettura completata"
+            )
+        except Exception as exc:
+            self.after(0, self.assistant.show_error, exc)
+        finally:
+            if engine is not None:
+                try:
+                    engine.stop()
+                except RuntimeError:
+                    pass
+            if com_initialized:
+                uninitialize_windows_com()
+            self._assistant_voice_busy.release()
 
     def _set_live_status(self, text: str) -> None:
         self.status_var.set(text)
