@@ -53,7 +53,9 @@ class KokoroSpeech:
             raise RuntimeError(
                 "Kokoro non installato. Esegui: pip install -e .[kokoro]"
             ) from exc
-        self.pipeline = KPipeline(lang_code="i")
+        self.pipeline = KPipeline(
+            lang_code="i", repo_id="hexgrad/Kokoro-82M"
+        )
         self.voice = voice if voice in KOKORO_VOICES.values() else "if_sara"
         self.speed = max(0.65, min(1.5, rate / 185))
         self._player = None
