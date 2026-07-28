@@ -40,3 +40,24 @@ def test_translate_many_keeps_order() -> None:
         "Secondo",
     ]
     assert translator._session.post.call_count == 1
+
+
+def test_answer_uses_user_instruction_and_screen_context() -> None:
+    translator = OllamaTranslator()
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "message": {"content": "La risposta è 42."}
+    }
+    translator._session.post = Mock(return_value=response)
+
+    result = translator.answer(
+        "Spiegami l'errore", "ValueError alla riga 42"
+    )
+
+    assert result == "La risposta è 42."
+    payload = translator._session.post.call_args.kwargs["json"]
+    prompt = payload["messages"][1]["content"]
+    assert "Spiegami l'errore" in prompt
+    assert "ValueError alla riga 42" in prompt
