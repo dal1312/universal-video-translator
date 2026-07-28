@@ -105,6 +105,7 @@ class SubtitlePlayer:
                     self.translator.model, self.source_language, cue.text
                 )
                 if translated is None:
+                    self.on_status(f"Traduzione battuta {position}/{len(self.cues)}")
                     translated = self.translator.translate(
                         cue.text, self.source_language
                     )
