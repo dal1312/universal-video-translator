@@ -46,11 +46,11 @@ def download_video(
     }
     if cookies_browser:
         options["cookiesfrombrowser"] = (cookies_browser,)
-    try:
-        with yt_dlp.YoutubeDL(options) as downloader:
+    def extract(download_options):
+        with yt_dlp.YoutubeDL(download_options) as downloader:
             info = downloader.extract_info(url, download=True)
             prepared = Path(downloader.prepare_filename(info))
-            candidates = [
+            return [
                 path
                 for path in (
                     prepared,
@@ -60,8 +60,32 @@ def download_video(
                 )
                 if path.exists()
             ]
+
+    try:
+        candidates = extract(options)
     except Exception as exc:
-        raise DownloadError(f"Download non riuscito: {exc}") from exc
+        detail = str(exc)
+        subtitle_failure = (
+            "video subtitles" in detail.casefold()
+            or "too many requests" in detail.casefold()
+            or "http error 429" in detail.casefold()
+        )
+        if not subtitle_failure:
+            raise DownloadError(f"Download non riuscito: {exc}") from exc
+        fallback = dict(options)
+        for key in (
+            "writesubtitles",
+            "writeautomaticsub",
+            "subtitleslangs",
+            "subtitlesformat",
+        ):
+            fallback.pop(key, None)
+        try:
+            candidates = extract(fallback)
+        except Exception as fallback_exc:
+            raise DownloadError(
+                f"Download non riuscito: {fallback_exc}"
+            ) from fallback_exc
     if not candidates:
         raise DownloadError("yt-dlp non ha prodotto un file video.")
     return max(candidates, key=lambda path: path.stat().st_size)
