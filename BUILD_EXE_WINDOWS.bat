@@ -65,6 +65,7 @@ if not exist "dist\UniversalVideoTranslator\_internal\espeakng_loader\espeak-ng-
 
 for /f "delims=" %%F in ('where ffmpeg') do if not defined UVT_FFMPEG set "UVT_FFMPEG=%%F"
 for /f "delims=" %%F in ('where ffprobe') do if not defined UVT_FFPROBE set "UVT_FFPROBE=%%F"
+for /f "delims=" %%F in ('where ffplay') do if not defined UVT_FFPLAY set "UVT_FFPLAY=%%F"
 if not defined UVT_FFMPEG (
   echo BUILD FALLITA: ffmpeg.exe non trovato.
   pause
@@ -72,6 +73,7 @@ if not defined UVT_FFMPEG (
 )
 copy /Y "%UVT_FFMPEG%" "dist\UniversalVideoTranslator\ffmpeg.exe" >nul
 if defined UVT_FFPROBE copy /Y "%UVT_FFPROBE%" "dist\UniversalVideoTranslator\ffprobe.exe" >nul
+if defined UVT_FFPLAY copy /Y "%UVT_FFPLAY%" "dist\UniversalVideoTranslator\ffplay.exe" >nul
 
 echo EXE creato in dist\UniversalVideoTranslator\UniversalVideoTranslator.exe
 pause
