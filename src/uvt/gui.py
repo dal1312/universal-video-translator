@@ -41,6 +41,8 @@ class TranslatorWindow(tk.Tk):
         self.live: LiveTranslator | None = None
         self.preview = MediaPreview()
         self.prepared_media: Path | None = None
+        self.preview_directory: tempfile.TemporaryDirectory | None = None
+        self.preview_has_italian_audio = False
         self.download_directory: tempfile.TemporaryDirectory | None = None
         self.overlay = SubtitleOverlay(self)
 
@@ -244,20 +246,55 @@ class TranslatorWindow(tk.Tk):
     def _prepare(self, settings: RunSettings) -> None:
         try:
             path = self._resolve_input(settings.source, settings.cookies_browser)
-            self.prepared_media = (
-                None if path.suffix.lower() in {".srt", ".vtt"} else path
-            )
+            is_media = path.suffix.lower() not in {".srt", ".vtt"}
             cues = load_cues(path, whisper_model=settings.whisper_model)
             if not cues:
                 raise ValueError("Nessuna battuta rilevata.")
+            speech_engine = settings.speech_engine
+            voice = settings.voice
+            if is_media:
+                self.after(0, self.status_var.set, "Creazione traccia italiana…")
+                if self.preview_directory:
+                    self.preview.stop()
+                    self.preview_directory.cleanup()
+                self.preview_directory = tempfile.TemporaryDirectory(
+                    prefix="uvt-preview-"
+                )
+                preview_root = Path(self.preview_directory.name)
+                audio = preview_root / "italiano.wav"
+                dubbed = preview_root / "video-italiano.mkv"
+                export_italian_audio(
+                    cues,
+                    audio,
+                    translator=OllamaTranslator(model=settings.ollama_model),
+                    cache=TranslationCache(),
+                    source_language=settings.language,
+                    rate=settings.rate,
+                    speech_engine=settings.speech_engine,
+                    voice=settings.voice,
+                    on_progress=lambda current, total: self.after(
+                        0,
+                        self.status_var.set,
+                        f"Preparazione audio {current}/{total}",
+                    ),
+                )
+                mux_video_with_italian_audio(path, audio, dubbed)
+                self.prepared_media = dubbed
+                self.preview_has_italian_audio = True
+                speech_engine = "silent"
+                voice = "default"
+            else:
+                self.prepared_media = None
+                self.preview_has_italian_audio = False
+
             self.player = SubtitlePlayer(
                 cues=cues,
                 translator=OllamaTranslator(model=settings.ollama_model),
                 cache=TranslationCache(),
                 source_language=settings.language,
                 rate=settings.rate,
-                speech_engine=settings.speech_engine,
-                voice=settings.voice,
+                speech_engine=speech_engine,
+                voice=voice,
                 on_text=lambda text: self.after(0, self._show_text, text),
                 on_status=lambda text: self.after(0, self._set_status, text),
                 on_error=lambda error: self.after(0, self._show_error, error),
@@ -274,7 +311,10 @@ class TranslatorWindow(tk.Tk):
         if self.player:
             if self.prepared_media:
                 try:
-                    self.preview.open(self.prepared_media)
+                    self.preview.open(
+                        self.prepared_media,
+                        mute_audio=not self.preview_has_italian_audio,
+                    )
                     self.after(700, self.player.start)
                     return
                 except Exception as exc:
@@ -553,6 +593,8 @@ class TranslatorWindow(tk.Tk):
             self.live.stop()
         if self.download_directory:
             self.download_directory.cleanup()
+        if self.preview_directory:
+            self.preview_directory.cleanup()
         self.destroy()
 
 
