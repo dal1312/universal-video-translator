@@ -15,6 +15,9 @@ if TYPE_CHECKING:
     from .ollama import OllamaTranslator
 
 
+TRANSLATION_BATCH_SIZE = 12
+
+
 def export_italian_audio(
     cues: list[Cue],
     destination: str | Path,
@@ -37,16 +40,36 @@ def export_italian_audio(
         temp = Path(directory)
         engine = create_speech_engine(speech_engine, voice, rate)
         segments: list[Path] = []
+        translated_by_text: dict[str, str] = {}
+        missing: list[str] = []
+
+        for cue in cues:
+            if cue.text in translated_by_text:
+                continue
+            translated = cache.get(translator.model, source_language, cue.text)
+            if translated is not None:
+                translated_by_text[cue.text] = translated
+            else:
+                missing.append(cue.text)
+
+        for offset in range(0, len(missing), TRANSLATION_BATCH_SIZE):
+            texts = missing[offset : offset + TRANSLATION_BATCH_SIZE]
+            translations = translator.translate_many(texts, source_language)
+            translated_by_text.update(zip(texts, translations))
+            cache.put_many(
+                [
+                    (
+                        translator.model,
+                        source_language,
+                        text,
+                        translated,
+                    )
+                    for text, translated in zip(texts, translations)
+                ]
+            )
 
         for index, cue in enumerate(cues):
-            translated = cache.get(
-                translator.model, source_language, cue.text
-            )
-            if translated is None:
-                translated = translator.translate(cue.text, source_language)
-                cache.put(
-                    translator.model, source_language, cue.text, translated
-                )
+            translated = translated_by_text[cue.text]
             segment = temp / f"segment-{index:05d}.wav"
             engine.save(translated, segment)
             if not segment.exists():
