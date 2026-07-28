@@ -18,6 +18,13 @@ if not exist "%VIRTUAL_ENV%\Lib\site-packages\language_tags\data\json\index.json
   exit /b 1
 )
 
+if not exist "%VIRTUAL_ENV%\Lib\site-packages\espeakng_loader\espeak-ng-data" (
+  echo ERRORE: espeakng_loader\espeak-ng-data non trovato.
+  echo Esegui nuovamente INSTALL_WINDOWS.bat.
+  pause
+  exit /b 1
+)
+
 if exist "dist\UniversalVideoTranslator.exe" del /q "dist\UniversalVideoTranslator.exe"
 
 pyinstaller --noconfirm --clean --onedir --windowed ^
@@ -29,6 +36,7 @@ pyinstaller --noconfirm --clean --onedir --windowed ^
   --collect-all misaki ^
   --collect-all language_tags ^
   --collect-all phonemizer ^
+  --collect-all espeakng_loader ^
   --collect-all torch ^
   --collect-all faster_whisper ^
   --collect-all ctranslate2 ^
@@ -44,6 +52,13 @@ if errorlevel 1 (
 xcopy "%VIRTUAL_ENV%\Lib\site-packages\language_tags\data" "dist\UniversalVideoTranslator\_internal\language_tags\data\" /E /I /Y >nul
 if not exist "dist\UniversalVideoTranslator\_internal\language_tags\data\json\index.json" (
   echo BUILD FALLITA: index.json non copiato.
+  pause
+  exit /b 1
+)
+
+xcopy "%VIRTUAL_ENV%\Lib\site-packages\espeakng_loader\espeak-ng-data" "dist\UniversalVideoTranslator\_internal\espeakng_loader\espeak-ng-data\" /E /I /Y >nul
+if not exist "dist\UniversalVideoTranslator\_internal\espeakng_loader\espeak-ng-data" (
+  echo BUILD FALLITA: espeak-ng-data non copiato.
   pause
   exit /b 1
 )
