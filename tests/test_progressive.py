@@ -6,6 +6,7 @@ from uvt.progressive import (
     CHUNK_SECONDS,
     INITIAL_BUFFER_SECONDS,
     SAMPLE_RATE,
+    VOICE_GAP_SECONDS,
     ProgressiveDubPlayer,
 )
 from uvt.subtitles import Cue
@@ -96,4 +97,33 @@ def test_audio_crossing_chunk_boundary_is_preserved(
     half_second = SAMPLE_RATE // 2
     assert np.all(player._initial[0][-half_second:] == 1.0)
     assert np.all(player._initial[1][:half_second] == 1.0)
+    player.stop()
+
+def test_close_cues_are_serialized_without_voice_overlap(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "uvt.progressive.create_speech_engine", lambda *_args: Engine()
+    )
+    player = ProgressiveDubPlayer(
+        media=tmp_path / "video.mp4",
+        cues=[
+            Cue(1.0, 2.0, "prima"),
+            Cue(1.5, 2.5, "seconda"),
+        ],
+        preview=Preview(),  # type: ignore[arg-type]
+        translator=Translator(),  # type: ignore[arg-type]
+        cache=Cache(),  # type: ignore[arg-type]
+    )
+
+    player.prepare()
+
+    audio = np.concatenate(player._initial)
+    first_end = 2 * SAMPLE_RATE
+    gap = round(VOICE_GAP_SECONDS * SAMPLE_RATE)
+    assert np.max(audio) == 1.0
+    assert np.all(audio[first_end : first_end + gap] == 0.0)
+    assert np.all(
+        audio[first_end + gap : first_end + gap + SAMPLE_RATE] == 1.0
+    )
     player.stop()
