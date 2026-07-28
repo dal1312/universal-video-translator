@@ -15,6 +15,10 @@ pyinstaller --noconfirm --clean --onefile --windowed ^
   --paths src ^
   --collect-all pyttsx3 ^
   --collect-all soundcard ^
+  --collect-all soundfile ^
+  --collect-all kokoro ^
+  --collect-all misaki ^
+  --collect-all torch ^
   --collect-all faster_whisper ^
   --collect-all ctranslate2 ^
   --collect-all yt_dlp ^
