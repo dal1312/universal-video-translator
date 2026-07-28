@@ -1,4 +1,4 @@
-from uvt.subtitles import parse_subtitles, timestamp_seconds
+from uvt.subtitles import Cue, collapse_rolling_cues, parse_subtitles, timestamp_seconds
 
 
 def test_timestamp_seconds() -> None:
@@ -30,3 +30,31 @@ Hello
     cues = parse_subtitles(content)
     assert len(cues) == 1
     assert cues[0].text == "Hello"
+
+
+def test_collapse_youtube_rolling_captions() -> None:
+    cues = [
+        Cue(0.0, 2.0, "Sono uno strumento per diffondere un messaggio."),
+        Cue(1.8, 3.5, "diffondere un messaggio, per diffonderlo"),
+        Cue(
+            3.2,
+            5.5,
+            "diffondere un messaggio, per diffondere ideologie, "
+            "per essere indottrinati.",
+        ),
+    ]
+
+    collapsed = collapse_rolling_cues(cues)
+
+    assert len(collapsed) == 1
+    assert collapsed[0].text.casefold().count("diffondere un messaggio") == 1
+    assert "diffondere ideologie" in collapsed[0].text
+
+
+def test_unrelated_captions_stay_separate() -> None:
+    cues = [
+        Cue(0.0, 1.0, "Prima frase."),
+        Cue(2.5, 3.5, "Seconda frase."),
+    ]
+
+    assert collapse_rolling_cues(cues) == cues
