@@ -15,6 +15,7 @@ from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .transcription import load_cues
+from .tts import KOKORO_VOICES, windows_voice_names
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +25,8 @@ class RunSettings:
     whisper_model: str
     language: str
     rate: int
+    speech_engine: str
+    voice: str
 
 
 class TranslatorWindow(tk.Tk):
@@ -42,6 +45,8 @@ class TranslatorWindow(tk.Tk):
         self.language_var = tk.StringVar(value="auto")
         self.rate_var = tk.IntVar(value=185)
         self.whisper_var = tk.StringVar(value="small")
+        self.speech_engine_var = tk.StringVar(value="kokoro")
+        self.voice_var = tk.StringVar(value="Sara (Kokoro, donna)")
         self.show_text_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Pronto")
         self._build()
@@ -52,7 +57,7 @@ class TranslatorWindow(tk.Tk):
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(7, weight=1)
+        frame.rowconfigure(9, weight=1)
 
         ttk.Label(frame, text="File o URL").grid(row=0, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.file_var).grid(
@@ -96,17 +101,44 @@ class TranslatorWindow(tk.Tk):
         ).grid(row=3, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
 
         ttk.Label(frame, text="Velocità voce").grid(
-            row=4, column=0, pady=(12, 0), sticky="w"
+            row=6, column=0, pady=(12, 0), sticky="w"
         )
         ttk.Scale(
             frame, from_=120, to=260, variable=self.rate_var, orient="horizontal"
-        ).grid(row=4, column=1, padx=8, pady=(12, 0), sticky="ew")
+        ).grid(row=6, column=1, padx=8, pady=(12, 0), sticky="ew")
         ttk.Label(frame, textvariable=self.rate_var, width=4).grid(
-            row=4, column=2, pady=(12, 0)
+            row=6, column=2, pady=(12, 0)
+        )
+
+        ttk.Label(frame, text="Motore voce").grid(
+            row=4, column=0, pady=(12, 0), sticky="w"
+        )
+        self.speech_combo = ttk.Combobox(
+            frame,
+            textvariable=self.speech_engine_var,
+            values=("kokoro", "windows"),
+            state="readonly",
+        )
+        self.speech_combo.grid(
+            row=4, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
+        )
+        self.speech_combo.bind("<<ComboboxSelected>>", self._refresh_voices)
+
+        ttk.Label(frame, text="Voce italiana").grid(
+            row=5, column=0, pady=(12, 0), sticky="w"
+        )
+        self.voice_combo = ttk.Combobox(
+            frame,
+            textvariable=self.voice_var,
+            values=tuple(KOKORO_VOICES),
+            state="readonly",
+        )
+        self.voice_combo.grid(
+            row=5, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
         )
 
         controls = ttk.Frame(frame)
-        controls.grid(row=5, column=0, columnspan=3, pady=18)
+        controls.grid(row=7, column=0, columnspan=3, pady=18)
         self.start_button = ttk.Button(controls, text="Avvia", command=self._start)
         self.start_button.pack(side="left", padx=4)
         self.pause_button = ttk.Button(
@@ -138,10 +170,10 @@ class TranslatorWindow(tk.Tk):
         ).pack(side="left", padx=16)
 
         ttk.Label(frame, textvariable=self.status_var).grid(
-            row=6, column=0, columnspan=3, sticky="w"
+            row=8, column=0, columnspan=3, sticky="w"
         )
         self.output = tk.Text(frame, wrap="word", height=10, state="disabled")
-        self.output.grid(row=7, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
+        self.output.grid(row=9, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
 
     def _browse(self) -> None:
         path = filedialog.askopenfilename(
@@ -173,6 +205,8 @@ class TranslatorWindow(tk.Tk):
                 cache=TranslationCache(),
                 source_language=settings.language,
                 rate=settings.rate,
+                speech_engine=settings.speech_engine,
+                voice=settings.voice,
                 on_text=lambda text: self.after(0, self._show_text, text),
                 on_status=lambda text: self.after(0, self._set_status, text),
                 on_error=lambda error: self.after(0, self._show_error, error),
@@ -227,6 +261,8 @@ class TranslatorWindow(tk.Tk):
                 cache=TranslationCache(),
                 source_language=settings.language,
                 rate=settings.rate,
+                speech_engine=settings.speech_engine,
+                voice=settings.voice,
                 on_progress=lambda current, total: self.after(
                     0, self.status_var.set, f"Esportazione {current}/{total}"
                 ),
@@ -276,6 +312,8 @@ class TranslatorWindow(tk.Tk):
                     cache=TranslationCache(),
                     source_language=settings.language,
                     rate=settings.rate,
+                    speech_engine=settings.speech_engine,
+                    voice=settings.voice,
                     on_progress=lambda current, total: self.after(
                         0, self.status_var.set, f"Creazione video {current}/{total}"
                     ),
@@ -325,13 +363,28 @@ class TranslatorWindow(tk.Tk):
         self.live_button.configure(text="Stop Live")
 
     def _settings(self) -> RunSettings:
+        selected_voice = self.voice_var.get()
+        if self.speech_engine_var.get() == "kokoro":
+            selected_voice = KOKORO_VOICES.get(selected_voice, selected_voice)
         return RunSettings(
             source=self.file_var.get().strip(),
             ollama_model=self.model_var.get().strip() or "translategemma:latest",
             whisper_model=self.whisper_var.get(),
             language=self.language_var.get(),
             rate=self.rate_var.get(),
+            speech_engine=self.speech_engine_var.get(),
+            voice=selected_voice,
         )
+
+    def _refresh_voices(self, _event=None) -> None:
+        if self.speech_engine_var.get() == "kokoro":
+            values = tuple(KOKORO_VOICES)
+            self.voice_combo.configure(values=values)
+            self.voice_var.set(values[0])
+            return
+        values = tuple(windows_voice_names()) or ("default",)
+        self.voice_combo.configure(values=values)
+        self.voice_var.set(values[0])
 
     def _load_models(self) -> None:
         try:
