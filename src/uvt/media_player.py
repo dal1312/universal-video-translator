@@ -22,19 +22,17 @@ class MediaPreview:
                 return str(candidate)
         return None
 
-    def open(self, media: str | Path) -> None:
+    def open(self, media: str | Path, mute_audio: bool = True) -> None:
         self.stop()
         source = str(Path(media))
         ffplay = self._ffplay()
         if ffplay:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            self.process = subprocess.Popen(
-                [
+            command = [
                     ffplay,
                     "-loglevel",
                     "error",
                     "-autoexit",
-                    "-an",
                     "-x",
                     "960",
                     "-y",
@@ -42,7 +40,11 @@ class MediaPreview:
                     "-window_title",
                     "Universal Video Translator - Video",
                     source,
-                ],
+                ]
+            if mute_audio:
+                command.insert(4, "-an")
+            self.process = subprocess.Popen(
+                command,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
