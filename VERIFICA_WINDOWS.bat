@@ -19,11 +19,12 @@ if errorlevel 1 goto failed
 where ffmpeg >nul 2>nul || goto missing_ffmpeg
 where espeak-ng >nul 2>nul || goto missing_espeak
 where ollama >nul 2>nul || goto missing_ollama
+where tesseract >nul 2>nul || goto missing_tesseract
 ollama list | findstr /i "translategemma:latest" >nul || goto missing_model
 python -c "import kokoro, soundfile" || goto missing_kokoro
 
 echo.
-echo VERIFICA COMPLETATA: codice, test, FFmpeg, eSpeak NG, Kokoro, Ollama e modello disponibili.
+echo VERIFICA COMPLETATA: codice, test, FFmpeg, eSpeak NG, Kokoro, Tesseract, Ollama e modello disponibili.
 pause
 exit /b 0
 
@@ -42,6 +43,11 @@ goto failed
 :missing_kokoro
 echo ERRORE: Kokoro o SoundFile non installato.
 echo Esegui nuovamente INSTALL_WINDOWS.bat.
+goto failed
+
+:missing_tesseract
+echo ERRORE: Tesseract OCR non trovato nel PATH.
+echo Installa con: winget install UB-Mannheim.TesseractOCR
 goto failed
 
 :missing_model
