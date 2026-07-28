@@ -12,12 +12,6 @@ if not exist ".venv\Scripts\python.exe" python -m venv .venv
 call ".venv\Scripts\activate.bat"
 python -m pip install --upgrade pip
 python -m pip install -e ".[all]"
-if errorlevel 1 (
-  echo.
-  echo ERRORE: installazione delle dipendenze non riuscita.
-  pause
-  exit /b 1
-)
 
 where ffmpeg >nul 2>nul || (
   echo.
@@ -39,6 +33,13 @@ where espeak-ng >nul 2>nul || (
   echo ATTENZIONE: Kokoro richiede eSpeak NG per la voce italiana.
   echo Installa eSpeak NG x64 dal progetto ufficiale:
   echo https://github.com/espeak-ng/espeak-ng/releases
+)
+
+where tesseract >nul 2>nul || (
+  echo.
+  echo ATTENZIONE: Tesseract OCR non trovato.
+  echo Installa con: winget install UB-Mannheim.TesseractOCR
+  echo Poi riavvia PowerShell.
 )
 
 :done
