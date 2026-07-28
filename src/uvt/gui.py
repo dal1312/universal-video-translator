@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from .cache import TranslationCache
 from .assistant_window import AssistantWindow
 from .assistant_memory import AssistantMemory
+from .ai_provider import create_assistant_client
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import (
@@ -89,6 +90,8 @@ class TranslatorWindow(tk.Tk):
         self.capture_device_var = tk.StringVar(
             value="Audio di sistema (predefinito)"
         )
+        self.assistant_provider_var = tk.StringVar(value="Ollama")
+        self.assistant_model_var = tk.StringVar()
         self.cookies_var = tk.StringVar(value="firefox")
         self.status_var = tk.StringVar(value="Pronto")
         self.dark_mode = True
@@ -391,6 +394,36 @@ class TranslatorWindow(tk.Tk):
             style="Subtitle.TLabel",
             wraplength=650,
         ).pack(anchor="w", pady=(4, 10))
+        assistant_provider_row = ttk.Frame(
+            assistant_actions, style="Card.TFrame"
+        )
+        assistant_provider_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(
+            assistant_provider_row, text="Provider assistente"
+        ).grid(row=0, column=0, sticky="w")
+        self.assistant_provider_combo = ttk.Combobox(
+            assistant_provider_row,
+            textvariable=self.assistant_provider_var,
+            values=("Ollama", "LM Studio", "OpenAI", "OpenRouter"),
+            state="readonly",
+            width=16,
+        )
+        self.assistant_provider_combo.grid(
+            row=1, column=0, sticky="w", pady=(4, 0)
+        )
+        self.assistant_provider_combo.bind(
+            "<<ComboboxSelected>>", self._assistant_provider_changed
+        )
+        ttk.Label(
+            assistant_provider_row,
+            text="Modello (vuoto = automatico)",
+        ).grid(row=0, column=1, sticky="w", padx=(12, 0))
+        ttk.Entry(
+            assistant_provider_row,
+            textvariable=self.assistant_model_var,
+            width=34,
+        ).grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(4, 0))
+        assistant_provider_row.columnconfigure(1, weight=1)
         self.assistant_button = ttk.Button(
             assistant_actions,
             text="Acquisisci finestra attiva",
@@ -919,7 +952,14 @@ class TranslatorWindow(tk.Tk):
         title = self.assistant.window_title
         threading.Thread(
             target=self._run_assistant_request,
-            args=(title, instruction, context, self.model_var.get()),
+            args=(
+                title,
+                instruction,
+                context,
+                self.assistant_provider_var.get(),
+                self.assistant_model_var.get(),
+                self.model_var.get(),
+            ),
             name="uvt-screen-answer",
             daemon=True,
         ).start()
@@ -929,13 +969,20 @@ class TranslatorWindow(tk.Tk):
         title: str,
         instruction: str,
         context: str,
-        model: str,
+        provider: str,
+        assistant_model: str,
+        ollama_model: str,
     ) -> None:
         try:
             history = self.assistant_memory.conversation_context()
-            result = OllamaTranslator(
-                model=model or "translategemma:latest"
-            ).answer(instruction, context, history=history)
+            client = create_assistant_client(
+                provider,
+                assistant_model,
+                ollama_model=ollama_model or "translategemma:latest",
+            )
+            result = client.answer(
+                instruction, context, history=history
+            )
             self.assistant_memory.add(
                 title, instruction, context, result
             )
@@ -945,6 +992,12 @@ class TranslatorWindow(tk.Tk):
             )
         except Exception as exc:
             self.after(0, self.assistant.show_error, exc)
+
+    def _assistant_provider_changed(self, _event=None) -> None:
+        if self.assistant_provider_var.get() == "Ollama":
+            self.assistant_model_var.set(self.model_var.get())
+        else:
+            self.assistant_model_var.set("")
 
     def _save_assistant_screenshot(self) -> None:
         if self._last_screen_image is None:
