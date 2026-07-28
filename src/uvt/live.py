@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import re
+import sys
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -63,6 +64,27 @@ def put_latest(target: queue.Queue, item: object) -> None:
         target.put_nowait(item)
     except queue.Full:
         pass
+
+
+def initialize_windows_com() -> bool:
+    if sys.platform != "win32":
+        return False
+    import ctypes
+
+    result = ctypes.windll.ole32.CoInitializeEx(None, 0)
+    code = result & 0xFFFFFFFF
+    if code in {0, 1}:
+        return True
+    if code == 0x80010106:
+        return False
+    raise OSError(f"Impossibile inizializzare COM: 0x{code:08X}")
+
+
+def uninitialize_windows_com() -> None:
+    if sys.platform == "win32":
+        import ctypes
+
+        ctypes.windll.ole32.CoUninitialize()
 
 
 class LiveTranslator:
@@ -142,7 +164,12 @@ class LiveTranslator:
                 put_latest(self._audio_queue, _END)
 
     def _speak(self) -> None:
+        com_initialized = False
         try:
+            com_initialized = initialize_windows_com()
+            self._engine = create_speech_engine(
+                self.speech_engine, self.voice, self.rate
+            )
             while not self._stop.is_set():
                 item = self._speech_queue.get()
                 if item is _END:
@@ -154,6 +181,16 @@ class LiveTranslator:
             if not self._stop.is_set():
                 self.on_error(exc)
                 self._stop.set()
+                put_latest(self._audio_queue, _END)
+        finally:
+            if self._engine is not None:
+                try:
+                    self._engine.stop()
+                except RuntimeError:
+                    pass
+                self._engine = None
+            if com_initialized:
+                uninitialize_windows_com()
 
     def _run(self) -> None:
         try:
@@ -173,9 +210,6 @@ class LiveTranslator:
             )
             if self.speak:
                 self.on_status("Overlay OS: caricamento voce…")
-                self._engine = create_speech_engine(
-                    self.speech_engine, self.voice, self.rate
-                )
                 self._speech_thread = threading.Thread(
                     target=self._speak, daemon=True
                 )
