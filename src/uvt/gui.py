@@ -35,8 +35,8 @@ class TranslatorWindow(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Universal Video Translator")
-        self.geometry("980x560")
-        self.minsize(850, 480)
+        self.geometry("1100x650")
+        self.minsize(920, 540)
         self.player: SubtitlePlayer | None = None
         self.live: LiveTranslator | None = None
         self.preview = MediaPreview()
@@ -54,6 +54,8 @@ class TranslatorWindow(tk.Tk):
         self.show_text_var = tk.BooleanVar(value=True)
         self.cookies_var = tk.StringVar(value="firefox")
         self.status_var = tk.StringVar(value="Pronto")
+        self.dark_mode = True
+        self._configure_theme()
         self._build()
         threading.Thread(target=self._load_models, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self._close)
@@ -65,9 +67,11 @@ class TranslatorWindow(tk.Tk):
         frame.rowconfigure(10, weight=1)
 
         ttk.Label(frame, text="File o URL").grid(row=0, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.file_var).grid(
+        self.file_entry = ttk.Entry(frame, textvariable=self.file_var)
+        self.file_entry.grid(
             row=0, column=1, padx=8, sticky="ew"
         )
+        self.file_entry.bind("<Button-3>", self._show_text_menu)
         ttk.Button(frame, text="Sfoglia…", command=self._browse).grid(
             row=0, column=2
         )
@@ -180,6 +184,10 @@ class TranslatorWindow(tk.Tk):
             controls, text="Live PC", command=self._toggle_live
         )
         self.live_button.pack(side="left", padx=4)
+        self.theme_button = ttk.Button(
+            controls, text="Tema chiaro", command=self._toggle_theme
+        )
+        self.theme_button.pack(side="left", padx=4)
         ttk.Checkbutton(
             controls, text="Mostra testo", variable=self.show_text_var
         ).pack(side="left", padx=16)
@@ -189,6 +197,24 @@ class TranslatorWindow(tk.Tk):
         )
         self.output = tk.Text(frame, wrap="word", height=10, state="disabled")
         self.output.grid(row=10, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
+        self._apply_text_colors()
+
+        self.text_menu = tk.Menu(self, tearoff=False)
+        self.text_menu.add_command(
+            label="Taglia", command=lambda: self._text_action("<<Cut>>")
+        )
+        self.text_menu.add_command(
+            label="Copia", command=lambda: self._text_action("<<Copy>>")
+        )
+        self.text_menu.add_command(
+            label="Incolla", command=lambda: self._text_action("<<Paste>>")
+        )
+        self.text_menu.add_separator()
+        self.text_menu.add_command(
+            label="Seleziona tutto",
+            command=lambda: self._text_action("<<SelectAll>>"),
+        )
+        self._apply_text_colors()
 
     def _browse(self) -> None:
         path = filedialog.askopenfilename(
@@ -200,6 +226,13 @@ class TranslatorWindow(tk.Tk):
         )
         if path:
             self.file_var.set(path)
+
+    def _show_text_menu(self, event: tk.Event) -> None:
+        self.file_entry.focus_set()
+        self.text_menu.tk_popup(event.x_root, event.y_root)
+
+    def _text_action(self, action: str) -> None:
+        self.file_entry.event_generate(action)
 
     def _start(self) -> None:
         self.start_button.configure(state="disabled")
@@ -372,6 +405,69 @@ class TranslatorWindow(tk.Tk):
         visible = self.overlay.toggle()
         self.overlay_button.configure(
             text="Nascondi overlay" if visible else "Overlay"
+        )
+
+    def _configure_theme(self) -> None:
+        self.style = ttk.Style(self)
+        self.style.theme_use("clam")
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self.dark_mode:
+            bg, panel, fg, field, accent = (
+                "#14171c",
+                "#1d222a",
+                "#f1f3f5",
+                "#252b35",
+                "#3b82f6",
+            )
+        else:
+            bg, panel, fg, field, accent = (
+                "#f3f4f6",
+                "#ffffff",
+                "#111827",
+                "#ffffff",
+                "#2563eb",
+            )
+        self.configure(bg=bg)
+        self.style.configure(".", background=bg, foreground=fg)
+        self.style.configure("TFrame", background=bg)
+        self.style.configure("TLabel", background=bg, foreground=fg)
+        self.style.configure(
+            "TEntry", fieldbackground=field, foreground=fg, insertcolor=fg
+        )
+        self.style.configure(
+            "TCombobox", fieldbackground=field, foreground=fg
+        )
+        self.style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", field)],
+            foreground=[("readonly", fg)],
+        )
+        self.style.configure("TButton", background=panel, foreground=fg)
+        self.style.map("TButton", background=[("active", accent)])
+        self.style.configure("TCheckbutton", background=bg, foreground=fg)
+        self.style.configure("Horizontal.TScale", background=bg)
+        self._theme_colors = (bg, field, fg)
+
+    def _apply_text_colors(self) -> None:
+        bg, field, fg = self._theme_colors
+        self.output.configure(
+            bg=field,
+            fg=fg,
+            insertbackground=fg,
+            selectbackground="#2563eb",
+            relief="flat",
+        )
+        if hasattr(self, "text_menu"):
+            self.text_menu.configure(bg=field, fg=fg)
+
+    def _toggle_theme(self) -> None:
+        self.dark_mode = not self.dark_mode
+        self._apply_theme()
+        self._apply_text_colors()
+        self.theme_button.configure(
+            text="Tema chiaro" if self.dark_mode else "Tema scuro"
         )
 
     def _toggle_live(self) -> None:
