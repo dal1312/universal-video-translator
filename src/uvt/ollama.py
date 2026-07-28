@@ -86,16 +86,7 @@ class OllamaTranslator:
             "lingua originale. Mantieni significato, tono e brevità. Rispondi "
             "esclusivamente con la traduzione italiana, senza note né prefissi."
         )
-        language_label = (
-            "rilevamento automatico"
-            if source_language == "auto"
-            else source_language
-        )
-        prompt = (
-            "/no_think\n"
-            f"Lingua originale: {language_label}\n"
-            f"Traduci esclusivamente in italiano:\n{text}"
-        )
+        prompt = f"/no_think\n{text}"
         try:
             response = requests.post(
                 self.url,
