@@ -77,12 +77,21 @@ class OllamaTranslator:
     def translate(self, text: str, source_language: str = "auto") -> str:
         self._ensure_ready()
         system_prompt = (
-            "Sei un motore di traduzione per doppiaggio. Traduci sempre il testo "
+            "/no_think\nSei un motore di traduzione per doppiaggio. Traduci sempre il testo "
             "ricevuto in italiano naturale e parlato. Non ripetere il testo nella "
             "lingua originale. Mantieni significato, tono e brevità. Rispondi "
             "esclusivamente con la traduzione italiana, senza note né prefissi."
         )
-        prompt = f"Lingua originale: {source_language}\nTesto da tradurre:\n{text}"
+        language_label = (
+            "rilevamento automatico"
+            if source_language == "auto"
+            else source_language
+        )
+        prompt = (
+            "/no_think\n"
+            f"Lingua originale: {language_label}\n"
+            f"Traduci esclusivamente in italiano:\n{text}"
+        )
         try:
             response = requests.post(
                 self.url,
