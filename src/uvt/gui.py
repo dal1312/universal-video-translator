@@ -28,6 +28,7 @@ class RunSettings:
     rate: int
     speech_engine: str
     voice: str
+    cookies_browser: str | None
 
 
 class TranslatorWindow(tk.Tk):
@@ -51,6 +52,7 @@ class TranslatorWindow(tk.Tk):
         self.speech_engine_var = tk.StringVar(value="kokoro")
         self.voice_var = tk.StringVar(value="Sara (Kokoro, donna)")
         self.show_text_var = tk.BooleanVar(value=True)
+        self.cookies_var = tk.StringVar(value="firefox")
         self.status_var = tk.StringVar(value="Pronto")
         self._build()
         threading.Thread(target=self._load_models, daemon=True).start()
@@ -60,7 +62,7 @@ class TranslatorWindow(tk.Tk):
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(9, weight=1)
+        frame.rowconfigure(10, weight=1)
 
         ttk.Label(frame, text="File o URL").grid(row=0, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.file_var).grid(
@@ -70,8 +72,18 @@ class TranslatorWindow(tk.Tk):
             row=0, column=2
         )
 
-        ttk.Label(frame, text="Modello Ollama").grid(
+        ttk.Label(frame, text="Cookie YouTube").grid(
             row=1, column=0, pady=(12, 0), sticky="w"
+        )
+        ttk.Combobox(
+            frame,
+            textvariable=self.cookies_var,
+            values=("firefox", "chrome", "edge", "nessuno"),
+            state="readonly",
+        ).grid(row=1, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
+
+        ttk.Label(frame, text="Modello Ollama").grid(
+            row=2, column=0, pady=(12, 0), sticky="w"
         )
         self.model_combo = ttk.Combobox(
             frame,
@@ -80,41 +92,41 @@ class TranslatorWindow(tk.Tk):
             state="readonly",
         )
         self.model_combo.grid(
-            row=1, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
+            row=2, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
         )
 
         ttk.Label(frame, text="Modello Whisper").grid(
-            row=2, column=0, pady=(12, 0), sticky="w"
+            row=3, column=0, pady=(12, 0), sticky="w"
         )
         ttk.Combobox(
             frame,
             textvariable=self.whisper_var,
             values=("tiny", "base", "small", "medium"),
             state="readonly",
-        ).grid(row=2, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
+        ).grid(row=3, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
 
         ttk.Label(frame, text="Lingua originale").grid(
-            row=3, column=0, pady=(12, 0), sticky="w"
+            row=4, column=0, pady=(12, 0), sticky="w"
         )
         ttk.Combobox(
             frame,
             textvariable=self.language_var,
             values=("auto", "inglese", "spagnolo", "francese", "tedesco"),
             state="readonly",
-        ).grid(row=3, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
+        ).grid(row=4, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
 
         ttk.Label(frame, text="Velocità voce").grid(
-            row=6, column=0, pady=(12, 0), sticky="w"
+            row=7, column=0, pady=(12, 0), sticky="w"
         )
         ttk.Scale(
             frame, from_=120, to=260, variable=self.rate_var, orient="horizontal"
-        ).grid(row=6, column=1, padx=8, pady=(12, 0), sticky="ew")
+        ).grid(row=7, column=1, padx=8, pady=(12, 0), sticky="ew")
         ttk.Label(frame, textvariable=self.rate_var, width=4).grid(
-            row=6, column=2, pady=(12, 0)
+            row=7, column=2, pady=(12, 0)
         )
 
         ttk.Label(frame, text="Motore voce").grid(
-            row=4, column=0, pady=(12, 0), sticky="w"
+            row=5, column=0, pady=(12, 0), sticky="w"
         )
         self.speech_combo = ttk.Combobox(
             frame,
@@ -123,12 +135,12 @@ class TranslatorWindow(tk.Tk):
             state="readonly",
         )
         self.speech_combo.grid(
-            row=4, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
+            row=5, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
         )
         self.speech_combo.bind("<<ComboboxSelected>>", self._refresh_voices)
 
         ttk.Label(frame, text="Voce italiana").grid(
-            row=5, column=0, pady=(12, 0), sticky="w"
+            row=6, column=0, pady=(12, 0), sticky="w"
         )
         self.voice_combo = ttk.Combobox(
             frame,
@@ -137,11 +149,11 @@ class TranslatorWindow(tk.Tk):
             state="readonly",
         )
         self.voice_combo.grid(
-            row=5, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
+            row=6, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
         )
 
         controls = ttk.Frame(frame)
-        controls.grid(row=7, column=0, columnspan=3, pady=18)
+        controls.grid(row=8, column=0, columnspan=3, pady=18)
         self.start_button = ttk.Button(controls, text="Avvia", command=self._start)
         self.start_button.pack(side="left", padx=4)
         self.pause_button = ttk.Button(
@@ -173,10 +185,10 @@ class TranslatorWindow(tk.Tk):
         ).pack(side="left", padx=16)
 
         ttk.Label(frame, textvariable=self.status_var).grid(
-            row=8, column=0, columnspan=3, sticky="w"
+            row=9, column=0, columnspan=3, sticky="w"
         )
         self.output = tk.Text(frame, wrap="word", height=10, state="disabled")
-        self.output.grid(row=9, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
+        self.output.grid(row=10, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
 
     def _browse(self) -> None:
         path = filedialog.askopenfilename(
@@ -198,7 +210,7 @@ class TranslatorWindow(tk.Tk):
 
     def _prepare(self, settings: RunSettings) -> None:
         try:
-            path = self._resolve_input(settings.source)
+            path = self._resolve_input(settings.source, settings.cookies_browser)
             self.prepared_media = (
                 None if path.suffix.lower() in {".srt", ".vtt"} else path
             )
@@ -265,7 +277,7 @@ class TranslatorWindow(tk.Tk):
     def _run_export(self, destination: str, settings: RunSettings) -> None:
         try:
             cues = load_cues(
-                self._resolve_input(settings.source),
+                self._resolve_input(settings.source, settings.cookies_browser),
                 whisper_model=settings.whisper_model,
             )
             output = export_italian_audio(
@@ -315,7 +327,7 @@ class TranslatorWindow(tk.Tk):
         self, destination: Path, settings: RunSettings
     ) -> None:
         try:
-            source = self._resolve_input(settings.source)
+            source = self._resolve_input(settings.source, settings.cookies_browser)
             with tempfile.TemporaryDirectory(prefix="uvt-video-") as directory:
                 audio = Path(directory) / "italiano.wav"
                 cues = load_cues(source, whisper_model=settings.whisper_model)
@@ -343,13 +355,17 @@ class TranslatorWindow(tk.Tk):
         self.status_var.set("Video italiano completato")
         messagebox.showinfo("Video creato", f"File salvato:\n{output}")
 
-    def _resolve_input(self, value: str) -> Path:
+    def _resolve_input(
+        self, value: str, cookies_browser: str | None = None
+    ) -> Path:
         if not is_web_url(value):
             return Path(value)
         if self.download_directory is None:
             self.download_directory = tempfile.TemporaryDirectory(prefix="uvt-url-")
         self.after(0, self.status_var.set, "Download video…")
-        return download_video(value, self.download_directory.name)
+        return download_video(
+            value, self.download_directory.name, cookies_browser=cookies_browser
+        )
 
     def _toggle_overlay(self) -> None:
         visible = self.overlay.toggle()
@@ -388,6 +404,9 @@ class TranslatorWindow(tk.Tk):
             rate=self.rate_var.get(),
             speech_engine=self.speech_engine_var.get(),
             voice=selected_voice,
+            cookies_browser=(
+                None if self.cookies_var.get() == "nessuno" else self.cookies_var.get()
+            ),
         )
 
     def _refresh_voices(self, _event=None) -> None:
