@@ -12,6 +12,8 @@ class AssistantWindow(tk.Toplevel):
         on_submit: Callable[[str, str], None],
         on_history: Callable[[], str],
         on_clear_history: Callable[[], None],
+        on_speak: Callable[[str], None],
+        on_save_screenshot: Callable[[], None],
     ) -> None:
         super().__init__(master)
         self.withdraw()
@@ -23,6 +25,8 @@ class AssistantWindow(tk.Toplevel):
         self._on_submit = on_submit
         self._on_history = on_history
         self._on_clear_history = on_clear_history
+        self._on_speak = on_speak
+        self._on_save_screenshot = on_save_screenshot
         self._title_var = tk.StringVar(value="Finestra attiva")
         self._status_var = tk.StringVar(value="Pronto")
         self._prompt_var = tk.StringVar(value="Spiegami ciò che vedi")
@@ -147,9 +151,24 @@ class AssistantWindow(tk.Toplevel):
         ).grid(row=0, column=0, sticky="ew")
         ttk.Button(
             footer,
+            text="Copia risposta",
+            command=self.copy_result,
+        ).grid(row=0, column=1, padx=(6, 0))
+        ttk.Button(
+            footer,
+            text="Leggi risposta",
+            command=self.speak_result,
+        ).grid(row=0, column=2, padx=(6, 0))
+        ttk.Button(
+            footer,
+            text="Salva schermata",
+            command=self._on_save_screenshot,
+        ).grid(row=0, column=3, padx=(6, 0))
+        ttk.Button(
+            footer,
             text="Cancella memoria",
             command=self.clear_history,
-        ).grid(row=0, column=1, sticky="e")
+        ).grid(row=0, column=4, padx=(6, 0))
 
     def open_loading(self, title: str = "Finestra attiva") -> None:
         self._title_var.set(title)
@@ -203,6 +222,23 @@ class AssistantWindow(tk.Toplevel):
         self._on_clear_history()
         self.set_result("Memoria locale cancellata.")
         self.set_busy(False, "Memoria cancellata")
+
+    def result_text(self) -> str:
+        return self.result.get("1.0", "end").strip()
+
+    def copy_result(self) -> None:
+        text = self.result_text()
+        if not text:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._status_var.set("Risposta copiata")
+
+    def speak_result(self) -> None:
+        text = self.result_text()
+        if text:
+            self._status_var.set("Lettura della risposta…")
+            self._on_speak(text)
 
     @property
     def window_title(self) -> str:
