@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -14,11 +15,19 @@ class TranscriptionError(RuntimeError):
 
 def ensure_ffmpeg() -> str:
     executable = shutil.which("ffmpeg")
-    if not executable:
-        raise TranscriptionError(
-            "FFmpeg non trovato. Installalo e aggiungilo alla variabile PATH."
-        )
-    return executable
+    if executable:
+        return executable
+    candidates = [
+        Path(sys.executable).resolve().parent / "ffmpeg.exe",
+        Path(sys.executable).resolve().parent / "_internal" / "ffmpeg.exe",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    raise TranscriptionError(
+        "FFmpeg non trovato. Installalo o ricostruisci l'app con "
+        "BUILD_EXE_WINDOWS.bat."
+    )
 
 
 def transcribe_media(
