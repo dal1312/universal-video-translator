@@ -18,7 +18,7 @@ if errorlevel 1 goto failed
 
 where ffmpeg >nul 2>nul || goto missing_ffmpeg
 where ollama >nul 2>nul || goto missing_ollama
-ollama list | findstr /i "qwen3:4b" >nul || goto missing_model
+ollama list | findstr /i "translategemma:latest" >nul || goto missing_model
 
 echo.
 echo VERIFICA COMPLETATA: codice, test, FFmpeg, Ollama e modello disponibili.
@@ -34,7 +34,7 @@ echo ERRORE: Ollama non trovato nel PATH.
 goto failed
 
 :missing_model
-echo ERRORE: modello qwen3:4b non installato.
+echo ERRORE: modello translategemma:latest non installato.
 goto failed
 
 :failed
