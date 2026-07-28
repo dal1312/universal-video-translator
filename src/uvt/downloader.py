@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .transcription import ensure_ffmpeg
+
 
 class DownloadError(RuntimeError):
     pass
@@ -32,6 +34,7 @@ def download_video(url: str, directory: str | Path) -> Path:
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        "ffmpeg_location": str(Path(ensure_ffmpeg()).parent),
     }
     try:
         with yt_dlp.YoutubeDL(options) as downloader:
