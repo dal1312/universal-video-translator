@@ -229,6 +229,7 @@ class TranslatorWindow(tk.Tk):
                 on_status=lambda text: self.after(0, self._set_status, text),
                 on_error=lambda error: self.after(0, self._show_error, error),
             )
+            self.player.prepare()
             self.after(0, self._begin_playback)
         except Exception as exc:
             self.after(0, self._show_error, exc)
