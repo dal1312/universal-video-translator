@@ -30,7 +30,7 @@ def download_video(
     target = Path(directory)
     target.mkdir(parents=True, exist_ok=True)
     options = {
-        "format": "bv*+ba/b",
+        "format": "best[ext=mp4][vcodec!=none][acodec!=none]/best",
         "outtmpl": str(target / "%(id)s.%(ext)s"),
         "merge_output_format": "mp4",
         "noplaylist": True,
