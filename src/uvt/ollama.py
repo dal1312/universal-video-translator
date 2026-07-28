@@ -88,8 +88,10 @@ class OllamaTranslator:
                 json={
                     "model": self.model,
                     "stream": False,
+                    "think": False,
+                    "keep_alive": "30m",
                     "messages": [{"role": "user", "content": prompt}],
-                    "options": {"temperature": 0.2},
+                    "options": {"temperature": 0.1, "num_predict": 256},
                 },
                 timeout=self.timeout,
             )
