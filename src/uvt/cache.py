@@ -19,7 +19,7 @@ class TranslationCache:
 
     @staticmethod
     def key(model: str, language: str, text: str) -> str:
-        value = "\0".join(("translation-v3", model, language, text))
+        value = "\0".join(("translation-v4", model, language, text))
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
     def get(self, model: str, language: str, text: str) -> str | None:
