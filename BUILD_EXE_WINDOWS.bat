@@ -18,6 +18,9 @@ pyinstaller --noconfirm --clean --onefile --windowed ^
   --collect-all soundfile ^
   --collect-all kokoro ^
   --collect-all misaki ^
+  --collect-all language_tags ^
+  --collect-all language_data ^
+  --collect-all phonemizer ^
   --collect-all torch ^
   --collect-all faster_whisper ^
   --collect-all ctranslate2 ^
