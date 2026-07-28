@@ -11,7 +11,7 @@ where python >nul 2>nul || (
 if not exist ".venv\Scripts\python.exe" python -m venv .venv
 call ".venv\Scripts\activate.bat"
 python -m pip install --upgrade pip
-python -m pip install -e ".[all]"
+python -m pip install -e ".[audio]"
 
 where ffmpeg >nul 2>nul || (
   echo.
@@ -26,7 +26,7 @@ where ollama >nul 2>nul || (
   goto done
 )
 
-ollama pull qwen3:4b
+ollama pull translategemma:latest
 
 :done
 echo.
