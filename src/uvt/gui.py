@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from .cache import TranslationCache
 from .assistant_window import AssistantWindow
+from .assistant_memory import AssistantMemory
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import LiveTranslator, capture_device_names
@@ -53,7 +54,13 @@ class TranslatorWindow(tk.Tk):
         self.preview_has_italian_audio = False
         self.download_directory: tempfile.TemporaryDirectory | None = None
         self.overlay = SubtitleOverlay(self)
-        self.assistant = AssistantWindow(self, self._ask_assistant)
+        self.assistant_memory = AssistantMemory()
+        self.assistant = AssistantWindow(
+            self,
+            self._ask_assistant,
+            self.assistant_memory.formatted_history,
+            self.assistant_memory.clear,
+        )
         self.hotkey = GlobalHotkey(self._capture_for_assistant)
         self._assistant_busy = threading.Lock()
 
@@ -895,20 +902,29 @@ class TranslatorWindow(tk.Tk):
             self._assistant_busy.release()
 
     def _ask_assistant(self, instruction: str, context: str) -> None:
+        title = self.assistant.window_title
         threading.Thread(
             target=self._run_assistant_request,
-            args=(instruction, context, self.model_var.get()),
+            args=(title, instruction, context, self.model_var.get()),
             name="uvt-screen-answer",
             daemon=True,
         ).start()
 
     def _run_assistant_request(
-        self, instruction: str, context: str, model: str
+        self,
+        title: str,
+        instruction: str,
+        context: str,
+        model: str,
     ) -> None:
         try:
+            history = self.assistant_memory.conversation_context()
             result = OllamaTranslator(
                 model=model or "translategemma:latest"
-            ).answer(instruction, context)
+            ).answer(instruction, context, history=history)
+            self.assistant_memory.add(
+                title, instruction, context, result
+            )
             self.after(0, self.assistant.set_result, result)
             self.after(
                 0, self.assistant.set_busy, False, "Completato"
