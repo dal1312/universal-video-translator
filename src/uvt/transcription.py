@@ -90,4 +90,11 @@ def load_cues(path: str | Path, whisper_model: str = "small") -> list[Cue]:
         from .subtitles import load_subtitles
 
         return load_subtitles(source)
+    sidecars = sorted(source.parent.glob(f"{source.stem}*.vtt"))
+    for sidecar in sidecars:
+        from .subtitles import load_subtitles
+
+        cues = load_subtitles(sidecar)
+        if cues:
+            return cues
     return transcribe_media(source, model=whisper_model)
