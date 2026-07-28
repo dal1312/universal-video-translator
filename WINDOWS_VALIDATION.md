@@ -45,3 +45,11 @@ The source code, automated tests, FFmpeg installation, Ollama installation and r
 - Italian voice `im_nicola` (Nicola): PASS
 - Translation and speech pipeline: PASS
 - Automated tests: 13 passed
+
+## Packaged application validation
+
+- PyInstaller onedir build: PASS
+- Bundled `language_tags` data: PASS
+- Bundled `espeakng_loader` data: PASS
+- Packaged onedir executable with Kokoro: PASS
+- Executable: `dist\UniversalVideoTranslator\UniversalVideoTranslator.exe`
