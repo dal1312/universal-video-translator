@@ -21,7 +21,8 @@ La pipeline prevista è:
 - caricamento di sottotitoli `.srt` e `.vtt`;
 - traduzione in italiano tramite Ollama;
 - modello locale selezionabile da una tendina popolata tramite Ollama, con `translategemma:latest` come valore iniziale;
-- sintesi vocale tramite le voci installate in Windows;
+- sintesi vocale locale Kokoro-82M con Sara e Nicola;
+- fallback alle voci installate in Windows;
 - sincronizzazione della lettura con i timestamp dei sottotitoli;
 - comandi Avvia, Pausa e Stop;
 - scelta della lingua sorgente oppure rilevamento automatico;
@@ -170,3 +171,7 @@ VERIFICA_WINDOWS.bat
 ```
 
 Per una prova immediata seleziona `examples\demo.srt` dall'interfaccia.
+
+## Voci italiane
+
+La GUI permette di scegliere `Kokoro` o `Windows`. Kokoro usa le voci italiane `Sara` (`if_sara`) e `Nicola` (`im_nicola`). Al primo utilizzo scarica localmente il modello; su Windows richiede eSpeak NG.
