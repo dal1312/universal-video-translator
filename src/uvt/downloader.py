@@ -30,13 +30,15 @@ def download_video(
     target = Path(directory)
     target.mkdir(parents=True, exist_ok=True)
     options = {
-        "format": "best[ext=mp4][vcodec!=none][acodec!=none]/best",
+        "format": "bv*+ba/b",
         "outtmpl": str(target / "%(id)s.%(ext)s"),
         "merge_output_format": "mp4",
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "ffmpeg_location": str(Path(ensure_ffmpeg()).parent),
+        "js_runtimes": {"deno": {}},
+        "remote_components": {"ejs:github"},
     }
     if cookies_browser:
         options["cookiesfrombrowser"] = (cookies_browser,)
