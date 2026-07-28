@@ -41,6 +41,7 @@ pyinstaller --noconfirm --clean --onedir --windowed ^
   --collect-all faster_whisper ^
   --collect-all ctranslate2 ^
   --collect-all yt_dlp ^
+  --collect-all PIL ^
   universal_video_translator.py
 
 if errorlevel 1 (
