@@ -42,3 +42,4 @@ def test_live_defaults_to_text_only(tmp_path) -> None:
 
     assert not live.speak
     assert live.chunk_seconds == 4.0
+    assert live.capture_device is None
