@@ -15,7 +15,9 @@ def is_web_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
-def download_video(url: str, directory: str | Path) -> Path:
+def download_video(
+    url: str, directory: str | Path, cookies_browser: str | None = None
+) -> Path:
     if not is_web_url(url):
         raise DownloadError("URL non valido.")
     try:
@@ -36,6 +38,8 @@ def download_video(url: str, directory: str | Path) -> Path:
         "no_warnings": True,
         "ffmpeg_location": str(Path(ensure_ffmpeg()).parent),
     }
+    if cookies_browser:
+        options["cookiesfrombrowser"] = (cookies_browser,)
     try:
         with yt_dlp.YoutubeDL(options) as downloader:
             info = downloader.extract_info(url, download=True)
