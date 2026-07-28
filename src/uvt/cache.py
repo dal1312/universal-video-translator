@@ -27,6 +27,18 @@ class TranslationCache:
 
     def put(self, model: str, language: str, text: str, translated: str) -> None:
         self._data[self.key(model, language, text)] = translated
+        self._save()
+
+    def put_many(
+        self, translations: list[tuple[str, str, str, str]]
+    ) -> None:
+        if not translations:
+            return
+        for model, language, text, translated in translations:
+            self._data[self.key(model, language, text)] = translated
+        self._save()
+
+    def _save(self) -> None:
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
         temporary.write_text(
             json.dumps(self._data, ensure_ascii=False, indent=2),
