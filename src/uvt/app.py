@@ -14,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Traduce sottotitoli e li legge in italiano."
     )
     parser.add_argument("subtitles", help="File .srt o .vtt")
-    parser.add_argument("--model", default="qwen3:4b")
+    parser.add_argument("--model", default="translategemma:latest")
     parser.add_argument("--source-language", default="auto")
     parser.add_argument("--rate", type=int, default=185)
     parser.add_argument("--no-sync", action="store_true")
