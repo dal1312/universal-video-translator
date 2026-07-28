@@ -11,6 +11,7 @@ from .cache import TranslationCache
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import LiveTranslator
+from .media_player import MediaPreview
 from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
@@ -37,6 +38,8 @@ class TranslatorWindow(tk.Tk):
         self.minsize(850, 480)
         self.player: SubtitlePlayer | None = None
         self.live: LiveTranslator | None = None
+        self.preview = MediaPreview()
+        self.prepared_media: Path | None = None
         self.download_directory: tempfile.TemporaryDirectory | None = None
         self.overlay = SubtitleOverlay(self)
 
@@ -196,6 +199,9 @@ class TranslatorWindow(tk.Tk):
     def _prepare(self, settings: RunSettings) -> None:
         try:
             path = self._resolve_input(settings.source)
+            self.prepared_media = (
+                None if path.suffix.lower() in {".srt", ".vtt"} else path
+            )
             cues = load_cues(path, whisper_model=settings.whisper_model)
             if not cues:
                 raise ValueError("Nessuna battuta rilevata.")
@@ -220,6 +226,13 @@ class TranslatorWindow(tk.Tk):
         self.pause_button.configure(state="normal")
         self.stop_button.configure(state="normal")
         if self.player:
+            if self.prepared_media:
+                try:
+                    self.preview.open(self.prepared_media)
+                    self.after(700, self.player.start)
+                    return
+                except Exception as exc:
+                    self._show_error(exc)
             self.player.start()
 
     def _pause(self) -> None:
@@ -230,6 +243,7 @@ class TranslatorWindow(tk.Tk):
     def _stop(self) -> None:
         if self.player:
             self.player.stop()
+        self.preview.stop()
         self._reset_controls()
 
     def _export(self) -> None:
@@ -418,6 +432,7 @@ class TranslatorWindow(tk.Tk):
     def _close(self) -> None:
         if self.player:
             self.player.stop()
+        self.preview.stop()
         if self.live:
             self.live.stop()
         if self.download_directory:
