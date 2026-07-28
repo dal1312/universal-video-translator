@@ -44,6 +44,9 @@ class WindowsSpeech:
     def stop(self) -> None:
         self.engine.stop()
 
+    def prewarm(self, _text: str) -> None:
+        return
+
 
 class KokoroSpeech:
     def __init__(self, rate: int = 185, voice: str = "if_sara") -> None:
@@ -59,10 +62,14 @@ class KokoroSpeech:
         self.voice = voice if voice in KOKORO_VOICES.values() else "if_sara"
         self.speed = max(0.65, min(1.5, rate / 185))
         self._player = None
+        self._prepared: dict[str, object] = {}
 
     def _audio(self, text: str):
         import numpy as np
 
+        prepared = self._prepared.pop(text, None)
+        if prepared is not None:
+            return prepared
         chunks = [
             np.asarray(audio, dtype=np.float32)
             for _graphemes, _phonemes, audio in self.pipeline(
@@ -72,6 +79,10 @@ class KokoroSpeech:
         if not chunks:
             raise RuntimeError("Kokoro non ha generato audio.")
         return np.concatenate(chunks)
+
+    def prewarm(self, text: str) -> None:
+        if text not in self._prepared:
+            self._prepared[text] = self._audio(text)
 
     def speak(self, text: str) -> None:
         import soundcard as sc
