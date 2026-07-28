@@ -15,6 +15,7 @@ from .media_player import MediaPreview
 from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
+from .progressive import ProgressiveDubPlayer
 from .transcription import load_cues
 from .tts import KOKORO_VOICES, windows_voice_names
 
@@ -38,6 +39,7 @@ class TranslatorWindow(tk.Tk):
         self.geometry("1100x650")
         self.minsize(920, 540)
         self.player: SubtitlePlayer | None = None
+        self.progressive: ProgressiveDubPlayer | None = None
         self.live: LiveTranslator | None = None
         self.preview = MediaPreview()
         self.prepared_media: Path | None = None
@@ -252,51 +254,39 @@ class TranslatorWindow(tk.Tk):
             cues = load_cues(path, whisper_model=settings.whisper_model)
             if not cues:
                 raise ValueError("Nessuna battuta rilevata.")
-            speech_engine = settings.speech_engine
-            voice = settings.voice
             if is_media:
-                self.after(0, self.status_var.set, "Creazione traccia italiana…")
-                if self.preview_directory:
-                    self.preview.stop()
-                    self.preview_directory.cleanup()
-                self.preview_directory = tempfile.TemporaryDirectory(
-                    prefix="uvt-preview-"
-                )
-                preview_root = Path(self.preview_directory.name)
-                audio = preview_root / "italiano.wav"
-                dubbed = preview_root / "video-italiano.mkv"
-                export_italian_audio(
-                    cues,
-                    audio,
+                if self.progressive:
+                    self.progressive.stop()
+                self.progressive = ProgressiveDubPlayer(
+                    media=path,
+                    cues=cues,
+                    preview=self.preview,
                     translator=OllamaTranslator(model=settings.ollama_model),
                     cache=TranslationCache(),
                     source_language=settings.language,
                     rate=settings.rate,
                     speech_engine=settings.speech_engine,
                     voice=settings.voice,
-                    on_progress=lambda current, total: self.after(
-                        0,
-                        self.status_var.set,
-                        f"Preparazione audio {current}/{total}",
-                    ),
+                    on_text=lambda text: self.after(0, self._show_text, text),
+                    on_status=lambda text: self.after(0, self._set_status, text),
+                    on_error=lambda error: self.after(0, self._show_error, error),
                 )
-                mux_video_with_italian_audio(path, audio, dubbed)
-                self.prepared_media = dubbed
-                self.preview_has_italian_audio = True
-                speech_engine = "silent"
-                voice = "default"
-            else:
-                self.prepared_media = None
-                self.preview_has_italian_audio = False
+                self.progressive.prepare()
+                self.player = None
+                self.after(0, self._begin_playback)
+                return
 
+            self.progressive = None
+            self.prepared_media = None
+            self.preview_has_italian_audio = False
             self.player = SubtitlePlayer(
                 cues=cues,
                 translator=OllamaTranslator(model=settings.ollama_model),
                 cache=TranslationCache(),
                 source_language=settings.language,
                 rate=settings.rate,
-                speech_engine=speech_engine,
-                voice=voice,
+                speech_engine=settings.speech_engine,
+                voice=settings.voice,
                 on_text=lambda text: self.after(0, self._show_text, text),
                 on_status=lambda text: self.after(0, self._set_status, text),
                 on_error=lambda error: self.after(0, self._show_error, error),
@@ -310,6 +300,13 @@ class TranslatorWindow(tk.Tk):
     def _begin_playback(self) -> None:
         self.pause_button.configure(state="normal")
         self.stop_button.configure(state="normal")
+        if self.progressive:
+            try:
+                self.progressive.start()
+            except Exception as exc:
+                self._show_error(exc)
+                self._reset_controls()
+            return
         if self.player:
             if self.prepared_media:
                 try:
@@ -324,11 +321,18 @@ class TranslatorWindow(tk.Tk):
             self.player.start()
 
     def _pause(self) -> None:
+        if self.progressive:
+            paused = self.progressive.toggle_pause()
+            self.pause_button.configure(text="Riprendi" if paused else "Pausa")
+            return
         if self.player:
             paused = self.player.toggle_pause()
             self.pause_button.configure(text="Riprendi" if paused else "Pausa")
 
     def _stop(self) -> None:
+        if self.progressive:
+            self.progressive.stop()
+            self.progressive = None
         if self.player:
             self.player.stop()
         self.preview.stop()
@@ -598,6 +602,8 @@ class TranslatorWindow(tk.Tk):
         self.stop_button.configure(state="disabled")
 
     def _close(self) -> None:
+        if self.progressive:
+            self.progressive.stop()
         if self.player:
             self.player.stop()
         self.preview.stop()
