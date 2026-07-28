@@ -14,5 +14,5 @@ def test_base_url() -> None:
 def test_missing_model_has_precise_error(get: Mock) -> None:
     get.return_value.raise_for_status.return_value = None
     get.return_value.json.return_value = {"models": [{"name": "other:latest"}]}
-    with pytest.raises(OllamaError, match="ollama pull qwen3:4b"):
+    with pytest.raises(OllamaError, match="ollama pull translategemma:latest"):
         OllamaTranslator()._ensure_ready()
