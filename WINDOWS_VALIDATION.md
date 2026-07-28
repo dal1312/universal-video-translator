@@ -36,3 +36,12 @@ The source code, automated tests, FFmpeg installation, Ollama installation and r
   - Benvenuti in Universal Video Translator.
   - Questa frase sarà tradotta e pronunciata in italiano.
   - Il prototipo locale funziona.
+
+## Kokoro voice validation
+
+- Kokoro environment: PASS
+- eSpeak NG: PASS
+- Italian voice `if_sara` (Sara): PASS
+- Italian voice `im_nicola` (Nicola): PASS
+- Translation and speech pipeline: PASS
+- Automated tests: 13 passed
