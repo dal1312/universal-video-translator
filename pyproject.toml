@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "universal-video-translator"
-version = "0.1.0"
-description = "Local subtitle translator and Italian text-to-speech player"
+version = "0.3.0"
+description = "Local AI video translator, live subtitles and screen assistant"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -31,7 +31,10 @@ all = [
   "soundcard>=0.4,<1",
   "soundfile>=0.12,<1",
   "yt-dlp",
+  "Pillow>=10,<13",
 ]
+
+assistant = ["Pillow>=10,<13"]
 
 [project.scripts]
 universal-video-translator = "uvt.gui:main"
