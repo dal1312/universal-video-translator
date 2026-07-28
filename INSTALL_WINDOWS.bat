@@ -28,6 +28,13 @@ where ollama >nul 2>nul || (
 
 ollama pull translategemma:latest
 
+where espeak-ng >nul 2>nul || (
+  echo.
+  echo ATTENZIONE: Kokoro richiede eSpeak NG per la voce italiana.
+  echo Installa eSpeak NG x64 dal progetto ufficiale:
+  echo https://github.com/espeak-ng/espeak-ng/releases
+)
+
 :done
 echo.
 echo Installazione completata. Avvia con AVVIA_WINDOWS.bat
