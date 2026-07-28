@@ -8,6 +8,9 @@
 - Comandi contestuali elaborati dal modello Ollama selezionato.
 - Finestra dedicata con testo rilevato, richiesta e risposta.
 - Cattura manuale ritardata per scegliere la finestra da analizzare.
+- Azioni rapide: traduci, spiega, riassumi e correggi.
+- Memoria locale SQLite con cronologia cancellabile.
+- Continuità contestuale tra le richieste recenti.
 
 ## 0.2.0 - 2026-07-28
 
