@@ -25,3 +25,14 @@ The source code, automated tests, FFmpeg installation, Ollama installation and r
 - PyInstaller build: PASS
 - Output: `dist\UniversalVideoTranslator.exe`
 - Application launch on Windows: PASS
+
+## Functional validation
+
+- SRT functional test: PASS
+- Ollama model: `translategemma:latest`
+- English-to-Italian output: PASS
+- Windows text-to-speech: PASS
+- Confirmed output:
+  - Benvenuti in Universal Video Translator.
+  - Questa frase sarà tradotta e pronunciata in italiano.
+  - Il prototipo locale funziona.
