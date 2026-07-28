@@ -89,7 +89,7 @@ def _append_text(base: str, tail: str) -> str:
         return tail.lstrip(" ,;:")
     if not tail:
         return base
-    if tail[0] in ",.;:!?”:
+    if tail[0] in ",.;:!?":
         return base.rstrip(" ,.;:!?") + tail
     return f"{base.rstrip()} {tail}"
 
