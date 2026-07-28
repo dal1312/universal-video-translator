@@ -38,13 +38,14 @@ class TranslatorWindow(tk.Tk):
         self.overlay = SubtitleOverlay(self)
 
         self.file_var = tk.StringVar()
-        self.model_var = tk.StringVar(value="qwen3:4b")
+        self.model_var = tk.StringVar(value="translategemma:latest")
         self.language_var = tk.StringVar(value="auto")
         self.rate_var = tk.IntVar(value=185)
         self.whisper_var = tk.StringVar(value="small")
         self.show_text_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Pronto")
         self._build()
+        threading.Thread(target=self._load_models, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _build(self) -> None:
@@ -64,7 +65,13 @@ class TranslatorWindow(tk.Tk):
         ttk.Label(frame, text="Modello Ollama").grid(
             row=1, column=0, pady=(12, 0), sticky="w"
         )
-        ttk.Entry(frame, textvariable=self.model_var).grid(
+        self.model_combo = ttk.Combobox(
+            frame,
+            textvariable=self.model_var,
+            values=("translategemma:latest", "qwen3:4b"),
+            state="readonly",
+        )
+        self.model_combo.grid(
             row=1, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew"
         )
 
@@ -320,11 +327,18 @@ class TranslatorWindow(tk.Tk):
     def _settings(self) -> RunSettings:
         return RunSettings(
             source=self.file_var.get().strip(),
-            ollama_model=self.model_var.get().strip() or "qwen3:4b",
+            ollama_model=self.model_var.get().strip() or "translategemma:latest",
             whisper_model=self.whisper_var.get(),
             language=self.language_var.get(),
             rate=self.rate_var.get(),
         )
+
+    def _load_models(self) -> None:
+        try:
+            models = OllamaTranslator(model="translategemma:latest").list_models()
+            self.after(0, self.model_combo.configure, {"values": models})
+        except Exception:
+            pass
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
