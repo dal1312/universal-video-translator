@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .subtitles import Cue
+from .subtitles import Cue, collapse_rolling_cues
 
 
 class TranscriptionError(RuntimeError):
@@ -89,12 +89,13 @@ def load_cues(path: str | Path, whisper_model: str = "small") -> list[Cue]:
     if source.suffix.lower() in {".srt", ".vtt"}:
         from .subtitles import load_subtitles
 
-        return load_subtitles(source)
+        cues = load_subtitles(source)
+        return collapse_rolling_cues(cues) if source.suffix.lower() == ".vtt" else cues
     sidecars = sorted(source.parent.glob(f"{source.stem}*.vtt"))
     for sidecar in sidecars:
         from .subtitles import load_subtitles
 
         cues = load_subtitles(sidecar)
         if cues:
-            return cues
+            return collapse_rolling_cues(cues)
     return transcribe_media(source, model=whisper_model)
