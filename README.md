@@ -162,7 +162,7 @@ INSTALL_WINDOWS.bat
 BUILD_EXE_WINDOWS.bat
 ```
 
-Il file risultante viene creato in `dist\UniversalVideoTranslator.exe`.
+Il file risultante viene creato in `dist\UniversalVideoTranslator\UniversalVideoTranslator.exe`.
 
 ## Verifica rapida
 
