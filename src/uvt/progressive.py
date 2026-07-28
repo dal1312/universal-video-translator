@@ -22,6 +22,7 @@ SAMPLE_RATE = 24000
 CHUNK_SECONDS = 15
 INITIAL_BUFFER_SECONDS = 30
 TRANSLATION_BATCH_SIZE = 12
+VOICE_GAP_SECONDS = 0.08
 _END = object()
 
 
@@ -63,6 +64,7 @@ class ProgressiveDubPlayer:
         self._temporary: tempfile.TemporaryDirectory | None = None
         self._cue_index = 0
         self._chunk_start = 0.0
+        self._voice_cursor_samples = 0
         self._carry = None
         self._stream = None
         self._producer: threading.Thread | None = None
@@ -92,6 +94,7 @@ class ProgressiveDubPlayer:
         self._engine = create_speech_engine(
             self.speech_engine, self.voice, self.rate
         )
+        self._voice_cursor_samples = 0
         self._carry = np.zeros(0, dtype=np.float32)
         required = math.ceil(INITIAL_BUFFER_SECONDS / CHUNK_SECONDS)
         for index in range(required):
@@ -276,6 +279,8 @@ class ProgressiveDubPlayer:
         import numpy as np
 
         chunk_samples = CHUNK_SECONDS * SAMPLE_RATE
+        chunk_start_sample = round(self._chunk_start * SAMPLE_RATE)
+        chunk_end_sample = chunk_start_sample + chunk_samples
         chunk = np.zeros(chunk_samples, dtype=np.float32)
         if len(self._carry):
             copied = min(len(self._carry), chunk_samples)
@@ -294,20 +299,42 @@ class ProgressiveDubPlayer:
 
         for index, cue in selected:
             audio = self._render(self._translations[cue.text], index)
-            offset = max(
-                0, round((cue.start - self._chunk_start) * SAMPLE_RATE)
+            cue_start_sample = max(0, round(cue.start * SAMPLE_RATE))
+            gap_samples = (
+                round(VOICE_GAP_SECONDS * SAMPLE_RATE)
+                if self._voice_cursor_samples
+                else 0
             )
+            speech_start_sample = max(
+                cue_start_sample,
+                self._voice_cursor_samples + gap_samples,
+            )
+            self._voice_cursor_samples = speech_start_sample + len(audio)
+
+            offset = speech_start_sample - chunk_start_sample
+            audio_offset = 0
+            if offset < 0:
+                audio_offset = min(len(audio), -offset)
+                offset = 0
             available = max(0, chunk_samples - offset)
-            copied = min(len(audio), available)
+            copied = min(len(audio) - audio_offset, available)
             if copied:
-                chunk[offset : offset + copied] += audio[:copied]
-            remainder = audio[copied:]
+                chunk[offset : offset + copied] += audio[
+                    audio_offset : audio_offset + copied
+                ]
+            remainder_start = audio_offset + copied
+            remainder = audio[remainder_start:]
             if len(remainder):
-                if len(self._carry) < len(remainder):
+                remainder_absolute = speech_start_sample + remainder_start
+                carry_offset = max(0, remainder_absolute - chunk_end_sample)
+                required = carry_offset + len(remainder)
+                if len(self._carry) < required:
                     self._carry = np.pad(
-                        self._carry, (0, len(remainder) - len(self._carry))
+                        self._carry, (0, required - len(self._carry))
                     )
-                self._carry[: len(remainder)] += remainder
+                self._carry[
+                    carry_offset : carry_offset + len(remainder)
+                ] += remainder
 
         np.clip(chunk, -1.0, 1.0, out=chunk)
         self._chunk_start = chunk_end
