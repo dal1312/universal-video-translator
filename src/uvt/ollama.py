@@ -17,7 +17,7 @@ class OllamaError(RuntimeError):
 class OllamaTranslator:
     model: str = "qwen3:4b"
     url: str = "http://127.0.0.1:11434/api/chat"
-    timeout: float = 90.0
+    timeout: float = 300.0
 
     def _base_url(self) -> str:
         parsed = urlsplit(self.url)
@@ -94,10 +94,20 @@ class OllamaTranslator:
                 timeout=self.timeout,
             )
             response.raise_for_status()
-            translated = response.json()["message"]["content"].strip()
-        except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
+        except requests.RequestException as exc:
+            detail = str(exc)
+            if exc.response is not None:
+                body = exc.response.text.strip().replace("\n", " ")
+                detail = f"HTTP {exc.response.status_code}: {body[:500]}"
             raise OllamaError(
-                "Ollama ha risposto con un errore durante la traduzione."
+                f"Errore API Ollama: {detail}"
+            ) from exc
+        try:
+            payload = response.json()
+            translated = str(payload["message"]["content"]).strip()
+        except (KeyError, TypeError, ValueError) as exc:
+            raise OllamaError(
+                f"Risposta Ollama non valida: {response.text[:500]}"
             ) from exc
         if not translated:
             raise OllamaError("Ollama ha restituito una traduzione vuota.")
