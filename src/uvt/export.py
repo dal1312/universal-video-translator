@@ -114,7 +114,6 @@ def mux_video_with_italian_audio(
         "192k",
         "-metadata:s:a:0",
         "language=ita",
-        "-shortest",
         str(output),
     ]
     try:
