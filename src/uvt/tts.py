@@ -48,6 +48,20 @@ class WindowsSpeech:
         return
 
 
+class SilentSpeech:
+    def speak(self, _text: str) -> None:
+        return
+
+    def save(self, _text: str, _destination: str | Path) -> None:
+        return
+
+    def stop(self) -> None:
+        return
+
+    def prewarm(self, _text: str) -> None:
+        return
+
+
 class KokoroSpeech:
     def __init__(self, rate: int = 185, voice: str = "if_sara") -> None:
         try:
@@ -108,6 +122,8 @@ class KokoroSpeech:
 def create_speech_engine(
     engine: str = "windows", voice: str = "default", rate: int = 185
 ) -> SpeechEngine:
+    if engine == "silent":
+        return SilentSpeech()
     if engine == "kokoro":
         return KokoroSpeech(rate=rate, voice=voice)
     return WindowsSpeech(rate=rate, voice=voice)
