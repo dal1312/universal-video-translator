@@ -10,17 +10,24 @@ if not exist ".venv\Scripts\python.exe" (
 
 call ".venv\Scripts\activate.bat"
 python -m pip install "pyinstaller>=6,<7"
+
+if not exist "%VIRTUAL_ENV%\Lib\site-packages\language_tags\data\json\index.json" (
+  echo ERRORE: language_tags\data\json\index.json non trovato.
+  echo Esegui nuovamente INSTALL_WINDOWS.bat.
+  pause
+  exit /b 1
+)
+
 pyinstaller --noconfirm --clean --onefile --windowed ^
   --name UniversalVideoTranslator ^
   --paths src ^
   --collect-all pyttsx3 ^
   --collect-all soundcard ^
-  --collect-all soundfile ^
   --collect-all kokoro ^
   --collect-all misaki ^
   --collect-all language_tags ^
-  --collect-all language_data ^
   --collect-all phonemizer ^
+  --add-data "%VIRTUAL_ENV%\Lib\site-packages\language_tags\data;language_tags\data" ^
   --collect-all torch ^
   --collect-all faster_whisper ^
   --collect-all ctranslate2 ^
