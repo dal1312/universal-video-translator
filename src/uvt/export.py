@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from .cache import TranslationCache
 from .subtitles import Cue
 from .transcription import TranscriptionError, ensure_ffmpeg
+from .tts import create_speech_engine
 
 if TYPE_CHECKING:
     from .ollama import OllamaTranslator
@@ -21,15 +22,12 @@ def export_italian_audio(
     cache: TranslationCache,
     source_language: str = "auto",
     rate: int = 185,
+    speech_engine: str = "windows",
+    voice: str = "default",
     on_progress: Callable[[int, int], None] | None = None,
 ) -> Path:
     if not cues:
         raise ValueError("Nessuna battuta da esportare.")
-
-    try:
-        import pyttsx3
-    except ImportError as exc:
-        raise TranscriptionError("pyttsx3 non installato.") from exc
 
     output = Path(destination)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -37,8 +35,7 @@ def export_italian_audio(
 
     with tempfile.TemporaryDirectory(prefix="uvt-export-") as directory:
         temp = Path(directory)
-        engine = pyttsx3.init()
-        engine.setProperty("rate", rate)
+        engine = create_speech_engine(speech_engine, voice, rate)
         segments: list[Path] = []
 
         for index, cue in enumerate(cues):
@@ -51,8 +48,7 @@ def export_italian_audio(
                     translator.model, source_language, cue.text, translated
                 )
             segment = temp / f"segment-{index:05d}.wav"
-            engine.save_to_file(translated, str(segment))
-            engine.runAndWait()
+            engine.save(translated, segment)
             if not segment.exists():
                 raise TranscriptionError(
                     "La voce di sistema non ha generato il file audio."
