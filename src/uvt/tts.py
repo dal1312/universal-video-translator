@@ -115,6 +115,9 @@ class KokoroSpeech:
 
         sf.write(str(destination), self._audio(text), 24000)
 
+    def render(self, text: str):
+        return self._audio(text), 24000
+
     def stop(self) -> None:
         self._player = None
 
