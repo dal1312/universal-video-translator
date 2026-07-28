@@ -20,7 +20,7 @@ La pipeline prevista è:
 
 - caricamento di sottotitoli `.srt` e `.vtt`;
 - traduzione in italiano tramite Ollama;
-- modello locale configurabile, con `qwen3:4b` come valore iniziale;
+- modello locale selezionabile da una tendina popolata tramite Ollama, con `translategemma:latest` come valore iniziale;
 - sintesi vocale tramite le voci installate in Windows;
 - sincronizzazione della lettura con i timestamp dei sottotitoli;
 - comandi Avvia, Pausa e Stop;
@@ -72,7 +72,7 @@ pip install requests pyttsx3
 Preparazione di Ollama:
 
 ```powershell
-ollama pull qwen3:4b
+ollama pull translategemma:latest
 ollama serve
 ```
 
@@ -99,7 +99,7 @@ Se Ollama è già in esecuzione come servizio, non è necessario avviare manualm
 
 ```text
 Ollama API: http://127.0.0.1:11434/api/chat
-Modello:    qwen3:4b
+Modello:    translategemma:latest
 Output:     italiano
 ```
 
