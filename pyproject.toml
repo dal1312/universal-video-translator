@@ -18,10 +18,18 @@ dev = ["pytest>=8,<9"]
 audio = ["faster-whisper>=1.1,<2"]
 youtube = ["yt-dlp"]
 live = ["faster-whisper>=1.1,<2", "numpy>=1.26,<3", "soundcard>=0.4,<1"]
-all = [
-  "faster-whisper>=1.1,<2",
+kokoro = [
+  "kokoro>=0.9.4,<1",
+  "soundfile>=0.12,<1",
   "numpy>=1.26,<3",
   "soundcard>=0.4,<1",
+]
+all = [
+  "faster-whisper>=1.1,<2",
+  "kokoro>=0.9.4,<1",
+  "numpy>=1.26,<3",
+  "soundcard>=0.4,<1",
+  "soundfile>=0.12,<1",
   "yt-dlp",
 ]
 
