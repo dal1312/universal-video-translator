@@ -12,6 +12,8 @@
 - Memoria locale SQLite con cronologia cancellabile.
 - Continuità contestuale tra le richieste recenti.
 - Copia della risposta, lettura vocale e salvataggio screenshot PNG.
+- Provider selezionabili: Ollama, LM Studio, OpenAI API e OpenRouter.
+- Modello dell'assistente indipendente dal modello di traduzione.
 
 ## 0.2.0 - 2026-07-28
 
