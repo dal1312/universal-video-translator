@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from .cache import TranslationCache
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
-from .live import LiveTranslator
+from .live import LiveTranslator, capture_device_names
 from .media_player import MediaPreview
 from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
@@ -57,19 +57,25 @@ class TranslatorWindow(tk.Tk):
         self.voice_var = tk.StringVar(value="Sara (Kokoro, donna)")
         self.show_text_var = tk.BooleanVar(value=True)
         self.live_voice_var = tk.BooleanVar(value=False)
+        self.capture_device_var = tk.StringVar(
+            value="Audio di sistema (predefinito)"
+        )
         self.cookies_var = tk.StringVar(value="firefox")
         self.status_var = tk.StringVar(value="Pronto")
         self.dark_mode = True
         self._configure_theme()
         self._build()
         threading.Thread(target=self._load_models, daemon=True).start()
+        threading.Thread(
+            target=self._load_capture_devices, daemon=True
+        ).start()
         self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _build(self) -> None:
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(10, weight=1)
+        frame.rowconfigure(11, weight=1)
 
         ttk.Label(frame, text="File o URL").grid(row=0, column=0, sticky="w")
         self.file_entry = ttk.Entry(frame, textvariable=self.file_var)
@@ -124,14 +130,32 @@ class TranslatorWindow(tk.Tk):
             state="readonly",
         ).grid(row=4, column=1, columnspan=2, padx=(8, 0), pady=(12, 0), sticky="ew")
 
-        ttk.Label(frame, text="Velocità voce").grid(
+        ttk.Label(frame, text="Ingresso Overlay OS").grid(
             row=7, column=0, pady=(12, 0), sticky="w"
+        )
+        self.capture_combo = ttk.Combobox(
+            frame,
+            textvariable=self.capture_device_var,
+            values=("Audio di sistema (predefinito)",),
+            state="readonly",
+        )
+        self.capture_combo.grid(
+            row=7,
+            column=1,
+            columnspan=2,
+            padx=(8, 0),
+            pady=(12, 0),
+            sticky="ew",
+        )
+
+        ttk.Label(frame, text="Velocità voce").grid(
+            row=8, column=0, pady=(12, 0), sticky="w"
         )
         ttk.Scale(
             frame, from_=120, to=260, variable=self.rate_var, orient="horizontal"
-        ).grid(row=7, column=1, padx=8, pady=(12, 0), sticky="ew")
+        ).grid(row=8, column=1, padx=8, pady=(12, 0), sticky="ew")
         ttk.Label(frame, textvariable=self.rate_var, width=4).grid(
-            row=7, column=2, pady=(12, 0)
+            row=8, column=2, pady=(12, 0)
         )
 
         ttk.Label(frame, text="Motore voce").grid(
@@ -162,7 +186,7 @@ class TranslatorWindow(tk.Tk):
         )
 
         controls = ttk.Frame(frame)
-        controls.grid(row=8, column=0, columnspan=3, pady=18)
+        controls.grid(row=9, column=0, columnspan=3, pady=18)
         self.start_button = ttk.Button(controls, text="Avvia", command=self._start)
         self.start_button.pack(side="left", padx=4)
         self.pause_button = ttk.Button(
@@ -201,10 +225,16 @@ class TranslatorWindow(tk.Tk):
         ).pack(side="left", padx=16)
 
         ttk.Label(frame, textvariable=self.status_var).grid(
-            row=9, column=0, columnspan=3, sticky="w"
+            row=10, column=0, columnspan=3, sticky="w"
         )
         self.output = tk.Text(frame, wrap="word", height=10, state="disabled")
-        self.output.grid(row=10, column=0, columnspan=3, pady=(8, 0), sticky="nsew")
+        self.output.grid(
+            row=11,
+            column=0,
+            columnspan=3,
+            pady=(8, 0),
+            sticky="nsew",
+        )
         self._apply_text_colors()
 
         self.text_menu = tk.Menu(self, tearoff=False)
@@ -547,6 +577,12 @@ class TranslatorWindow(tk.Tk):
             speech_engine=settings.speech_engine,
             voice=settings.voice,
             speak=self.live_voice_var.get(),
+            capture_device=(
+                None
+                if self.capture_device_var.get()
+                == "Audio di sistema (predefinito)"
+                else self.capture_device_var.get()
+            ),
             on_text=lambda text: self.after(0, self._show_text, text),
             on_status=lambda text: self.after(
                 0, self._set_live_status, text
@@ -594,6 +630,15 @@ class TranslatorWindow(tk.Tk):
             self.after(0, self.model_combo.configure, {"values": models})
         except Exception:
             pass
+
+    def _load_capture_devices(self) -> None:
+        values = (
+            "Audio di sistema (predefinito)",
+            *capture_device_names(),
+        )
+        self.after(
+            0, self.capture_combo.configure, {"values": values}
+        )
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
