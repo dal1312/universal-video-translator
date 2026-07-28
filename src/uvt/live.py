@@ -1,17 +1,68 @@
 from __future__ import annotations
 
+import queue
+import re
 import threading
+from collections import deque
 from collections.abc import Callable
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
 from .cache import TranslationCache
+from .tts import create_speech_engine
 
 if TYPE_CHECKING:
     from .ollama import OllamaTranslator
 
 
+_WORD = re.compile(r"\w+(?:['’]\w+)*", re.UNICODE)
+_END = object()
+
+
 class LiveCaptureError(RuntimeError):
     pass
+
+
+def _normalized_words(text: str) -> list[str]:
+    return [item.casefold() for item in _WORD.findall(text)]
+
+
+def is_probable_echo(text: str, spoken_history: list[str]) -> bool:
+    words = _normalized_words(text)
+    if len(words) < 2:
+        return False
+    normalized = " ".join(words)
+    word_set = set(words)
+    for spoken in spoken_history:
+        spoken_words = _normalized_words(spoken)
+        if not spoken_words:
+            continue
+        spoken_normalized = " ".join(spoken_words)
+        sequence = SequenceMatcher(
+            None, normalized, spoken_normalized
+        ).ratio()
+        overlap = len(word_set.intersection(spoken_words)) / min(
+            len(word_set), len(set(spoken_words))
+        )
+        if sequence >= 0.72 or overlap >= 0.82:
+            return True
+    return False
+
+
+def put_latest(target: queue.Queue, item: object) -> None:
+    try:
+        target.put_nowait(item)
+        return
+    except queue.Full:
+        pass
+    try:
+        target.get_nowait()
+    except queue.Empty:
+        pass
+    try:
+        target.put_nowait(item)
+    except queue.Full:
+        pass
 
 
 class LiveTranslator:
@@ -22,7 +73,10 @@ class LiveTranslator:
         whisper_model: str = "small",
         source_language: str = "auto",
         rate: int = 185,
-        chunk_seconds: int = 6,
+        chunk_seconds: float = 4.0,
+        speech_engine: str = "kokoro",
+        voice: str = "if_sara",
+        speak: bool = False,
         on_text: Callable[[str], None] | None = None,
         on_status: Callable[[str], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
@@ -32,12 +86,21 @@ class LiveTranslator:
         self.whisper_model = whisper_model
         self.source_language = source_language
         self.rate = rate
-        self.chunk_seconds = chunk_seconds
+        self.chunk_seconds = max(2.0, min(8.0, float(chunk_seconds)))
+        self.speech_engine = speech_engine
+        self.voice = voice
+        self.speak = speak
         self.on_text = on_text or (lambda _text: None)
         self.on_status = on_status or (lambda _text: None)
         self.on_error = on_error or (lambda _error: None)
         self._stop = threading.Event()
+        self._audio_queue: queue.Queue = queue.Queue(maxsize=3)
+        self._speech_queue: queue.Queue = queue.Queue(maxsize=4)
+        self._spoken_history: deque[str] = deque(maxlen=5)
         self._thread: threading.Thread | None = None
+        self._capture_thread: threading.Thread | None = None
+        self._speech_thread: threading.Thread | None = None
+        self._engine = None
 
     @property
     def running(self) -> bool:
@@ -47,19 +110,58 @@ class LiveTranslator:
         if self.running:
             return
         self._stop.clear()
+        self._audio_queue = queue.Queue(maxsize=3)
+        self._speech_queue = queue.Queue(maxsize=4)
+        self._spoken_history.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
+        put_latest(self._audio_queue, _END)
+        put_latest(self._speech_queue, _END)
+        if self._engine is not None:
+            try:
+                self._engine.stop()
+            except RuntimeError:
+                pass
+
+    def _capture(self, microphone, sample_rate: int) -> None:
+        try:
+            frames = round(sample_rate * self.chunk_seconds)
+            with microphone.recorder(samplerate=sample_rate) as recorder:
+                while not self._stop.is_set():
+                    audio = recorder.record(numframes=frames)
+                    if self._stop.is_set():
+                        return
+                    put_latest(self._audio_queue, audio)
+        except Exception as exc:
+            if not self._stop.is_set():
+                self.on_error(LiveCaptureError(f"Cattura audio fallita: {exc}"))
+                self._stop.set()
+                put_latest(self._audio_queue, _END)
+
+    def _speak(self) -> None:
+        try:
+            while not self._stop.is_set():
+                item = self._speech_queue.get()
+                if item is _END:
+                    return
+                text = str(item)
+                self._spoken_history.append(text)
+                self._engine.speak(text)
+        except Exception as exc:
+            if not self._stop.is_set():
+                self.on_error(exc)
+                self._stop.set()
 
     def _run(self) -> None:
         try:
             import numpy as np
-            import pyttsx3
             import soundcard as sc
             from faster_whisper import WhisperModel
 
+            self.on_status("Overlay OS: caricamento Whisper…")
             speaker = sc.default_speaker()
             if speaker is None:
                 raise LiveCaptureError("Nessuna uscita audio predefinita.")
@@ -69,8 +171,16 @@ class LiveTranslator:
             whisper = WhisperModel(
                 self.whisper_model, device="auto", compute_type="int8"
             )
-            engine = pyttsx3.init()
-            engine.setProperty("rate", self.rate)
+            if self.speak:
+                self.on_status("Overlay OS: caricamento voce…")
+                self._engine = create_speech_engine(
+                    self.speech_engine, self.voice, self.rate
+                )
+                self._speech_thread = threading.Thread(
+                    target=self._speak, daemon=True
+                )
+                self._speech_thread.start()
+
             sample_rate = 16000
             language_codes = {
                 "inglese": "en",
@@ -79,45 +189,65 @@ class LiveTranslator:
                 "tedesco": "de",
             }
             language = language_codes.get(self.source_language)
-            self.on_status("Live: ascolto audio di sistema")
+            self._capture_thread = threading.Thread(
+                target=self._capture,
+                args=(microphone, sample_rate),
+                daemon=True,
+            )
+            self._capture_thread.start()
+            self.on_status("Overlay OS: ascolto continuo")
 
-            with microphone.recorder(samplerate=sample_rate) as recorder:
-                while not self._stop.is_set():
-                    audio = recorder.record(
-                        numframes=sample_rate * self.chunk_seconds
+            while not self._stop.is_set():
+                audio = self._audio_queue.get()
+                if audio is _END:
+                    break
+                mono = np.asarray(audio, dtype=np.float32)
+                if mono.ndim > 1:
+                    mono = mono.mean(axis=1)
+                if not len(mono) or float(np.max(np.abs(mono))) < 0.005:
+                    continue
+                segments, _info = whisper.transcribe(
+                    mono,
+                    language=language,
+                    vad_filter=True,
+                    condition_on_previous_text=False,
+                )
+                original = " ".join(
+                    segment.text.strip()
+                    for segment in segments
+                    if segment.text.strip()
+                ).strip()
+                if (
+                    not original
+                    or self._stop.is_set()
+                    or is_probable_echo(
+                        original, list(self._spoken_history)
                     )
-                    mono = np.asarray(audio, dtype=np.float32)
-                    if mono.ndim > 1:
-                        mono = mono.mean(axis=1)
-                    if float(np.max(np.abs(mono))) < 0.005:
-                        continue
-                    segments, _info = whisper.transcribe(
-                        mono, language=language, vad_filter=True
+                ):
+                    continue
+                translated = self.cache.get(
+                    self.translator.model,
+                    self.source_language,
+                    original,
+                )
+                if translated is None:
+                    translated = self.translator.translate(
+                        original, self.source_language
                     )
-                    original = " ".join(
-                        segment.text.strip()
-                        for segment in segments
-                        if segment.text.strip()
-                    ).strip()
-                    if not original or self._stop.is_set():
-                        continue
-                    translated = self.cache.get(
-                        self.translator.model, self.source_language, original
+                    self.cache.put(
+                        self.translator.model,
+                        self.source_language,
+                        original,
+                        translated,
                     )
-                    if translated is None:
-                        translated = self.translator.translate(
-                            original, self.source_language
-                        )
-                        self.cache.put(
-                            self.translator.model,
-                            self.source_language,
-                            original,
-                            translated,
-                        )
-                    self.on_text(translated)
-                    engine.say(translated)
-                    engine.runAndWait()
-            self.on_status("Live interrotto")
+                self.on_text(translated)
+                if self.speak:
+                    put_latest(self._speech_queue, translated)
+            self.on_status("Overlay OS interrotto")
         except Exception as exc:
-            self.on_error(exc)
-            self.on_status("Errore live")
+            if not self._stop.is_set():
+                self.on_error(exc)
+            self.on_status("Errore Overlay OS")
+        finally:
+            self._stop.set()
+            put_latest(self._speech_queue, _END)
