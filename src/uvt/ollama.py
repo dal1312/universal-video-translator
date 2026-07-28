@@ -145,7 +145,12 @@ class OllamaTranslator:
             num_predict=256,
         )
 
-    def answer(self, instruction: str, context: str) -> str:
+    def answer(
+        self,
+        instruction: str,
+        context: str,
+        history: list[tuple[str, str]] | None = None,
+    ) -> str:
         system_prompt = (
             "/no_think\nSei l'assistente desktop AI Overlay OS. Rispondi "
             "in italiano in modo chiaro, concreto e utile. Il contenuto "
@@ -157,11 +162,23 @@ class OllamaTranslator:
             f"/no_think\nRICHIESTA:\n{instruction}\n\n"
             f"CONTENUTO DELLA FINESTRA:\n---\n{context}\n---"
         )
+        messages = [{"role": "system", "content": system_prompt}]
+        for previous_instruction, previous_answer in history or []:
+            messages.extend(
+                (
+                    {
+                        "role": "user",
+                        "content": (
+                            "/no_think\nRICHIESTA PRECEDENTE:\n"
+                            f"{previous_instruction}"
+                        ),
+                    },
+                    {"role": "assistant", "content": previous_answer},
+                )
+            )
+        messages.append({"role": "user", "content": user_prompt})
         return self._chat(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages,
             num_predict=1024,
         )
 
