@@ -11,6 +11,7 @@
 - Azioni rapide: traduci, spiega, riassumi e correggi.
 - Memoria locale SQLite con cronologia cancellabile.
 - Continuità contestuale tra le richieste recenti.
+- Copia della risposta, lettura vocale e salvataggio screenshot PNG.
 
 ## 0.2.0 - 2026-07-28
 
