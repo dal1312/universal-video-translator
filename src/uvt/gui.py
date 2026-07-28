@@ -8,6 +8,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .cache import TranslationCache
+from .assistant_window import AssistantWindow
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import LiveTranslator, capture_device_names
@@ -16,6 +17,11 @@ from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
+from .screen_assistant import (
+    GlobalHotkey,
+    capture_active_window,
+    extract_text,
+)
 from .transcription import load_cues
 from .tts import KOKORO_VOICES, windows_voice_names
 
@@ -47,6 +53,9 @@ class TranslatorWindow(tk.Tk):
         self.preview_has_italian_audio = False
         self.download_directory: tempfile.TemporaryDirectory | None = None
         self.overlay = SubtitleOverlay(self)
+        self.assistant = AssistantWindow(self, self._ask_assistant)
+        self.hotkey = GlobalHotkey(self._capture_for_assistant)
+        self._assistant_busy = threading.Lock()
 
         self.file_var = tk.StringVar()
         self.model_var = tk.StringVar(value="translategemma:latest")
@@ -66,6 +75,7 @@ class TranslatorWindow(tk.Tk):
         self.advanced_visible = False
         self._configure_theme()
         self._build()
+        self._start_hotkey()
         threading.Thread(target=self._load_models, daemon=True).start()
         threading.Thread(
             target=self._load_capture_devices, daemon=True
@@ -344,6 +354,29 @@ class TranslatorWindow(tk.Tk):
             command=self._toggle_overlay,
         )
         self.overlay_button.pack(side="left")
+
+        assistant_actions = ttk.Frame(
+            overlay_tab, style="Card.TFrame"
+        )
+        assistant_actions.grid(row=6, column=0, sticky="ew", pady=(18, 0))
+        ttk.Separator(assistant_actions).pack(fill="x", pady=(0, 14))
+        ttk.Label(
+            assistant_actions,
+            text="ASSISTENTE SCHERMO",
+            style="Section.TLabel",
+        ).pack(anchor="w")
+        ttk.Label(
+            assistant_actions,
+            text="Premi CTRL+SPACE da qualsiasi programma per acquisire la finestra e chiedere aiuto all’IA.",
+            style="Subtitle.TLabel",
+            wraplength=650,
+        ).pack(anchor="w", pady=(4, 10))
+        self.assistant_button = ttk.Button(
+            assistant_actions,
+            text="Acquisisci finestra attiva",
+            command=self._capture_from_button,
+        )
+        self.assistant_button.pack(anchor="w")
 
         output_card = ttk.Frame(
             workspace, padding=16, style="Card.TFrame"
@@ -825,6 +858,64 @@ class TranslatorWindow(tk.Tk):
         self.live.start()
         self.live_button.configure(text="Stop Overlay OS")
 
+    def _start_hotkey(self) -> None:
+        if not self.hotkey.start() and self.hotkey.error:
+            self.status_var.set(self.hotkey.error)
+
+    def _capture_for_assistant(self) -> None:
+        if not self._assistant_busy.acquire(blocking=False):
+            return
+        threading.Thread(
+            target=self._run_screen_capture,
+            name="uvt-screen-capture",
+            daemon=True,
+        ).start()
+
+    def _capture_from_button(self) -> None:
+        self.status_var.set(
+            "Seleziona la finestra da analizzare: cattura tra 2 secondi…"
+        )
+        self.after(2000, self._capture_for_assistant)
+
+    def _run_screen_capture(self) -> None:
+        try:
+            capture = capture_active_window()
+            self.after(
+                0, self.assistant.open_loading, capture.title
+            )
+            context = extract_text(capture.image)
+            self.after(0, self.assistant.set_context, context)
+            self.after(
+                0, self.assistant.set_busy, False, "OCR completato"
+            )
+        except Exception as exc:
+            self.after(0, self.assistant.deiconify)
+            self.after(0, self.assistant.show_error, exc)
+        finally:
+            self._assistant_busy.release()
+
+    def _ask_assistant(self, instruction: str, context: str) -> None:
+        threading.Thread(
+            target=self._run_assistant_request,
+            args=(instruction, context, self.model_var.get()),
+            name="uvt-screen-answer",
+            daemon=True,
+        ).start()
+
+    def _run_assistant_request(
+        self, instruction: str, context: str, model: str
+    ) -> None:
+        try:
+            result = OllamaTranslator(
+                model=model or "translategemma:latest"
+            ).answer(instruction, context)
+            self.after(0, self.assistant.set_result, result)
+            self.after(
+                0, self.assistant.set_busy, False, "Completato"
+            )
+        except Exception as exc:
+            self.after(0, self.assistant.show_error, exc)
+
     def _set_live_status(self, text: str) -> None:
         self.status_var.set(text)
         if text in {"Overlay OS interrotto", "Errore Overlay OS"}:
@@ -896,6 +987,7 @@ class TranslatorWindow(tk.Tk):
         self.stop_button.configure(state="disabled")
 
     def _close(self) -> None:
+        self.hotkey.stop()
         if self.progressive:
             self.progressive.stop()
         if self.player:
