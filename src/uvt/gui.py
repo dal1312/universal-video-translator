@@ -245,7 +245,9 @@ class TranslatorWindow(tk.Tk):
 
     def _prepare(self, settings: RunSettings) -> None:
         try:
-            path = self._resolve_input(settings.source, settings.cookies_browser)
+            path = self._resolve_input(
+                settings.source, settings.cookies_browser, settings.language
+            )
             is_media = path.suffix.lower() not in {".srt", ".vtt"}
             cues = load_cues(path, whisper_model=settings.whisper_model)
             if not cues:
@@ -351,7 +353,9 @@ class TranslatorWindow(tk.Tk):
     def _run_export(self, destination: str, settings: RunSettings) -> None:
         try:
             cues = load_cues(
-                self._resolve_input(settings.source, settings.cookies_browser),
+                self._resolve_input(
+                    settings.source, settings.cookies_browser, settings.language
+                ),
                 whisper_model=settings.whisper_model,
             )
             output = export_italian_audio(
@@ -401,7 +405,9 @@ class TranslatorWindow(tk.Tk):
         self, destination: Path, settings: RunSettings
     ) -> None:
         try:
-            source = self._resolve_input(settings.source, settings.cookies_browser)
+            source = self._resolve_input(
+                settings.source, settings.cookies_browser, settings.language
+            )
             with tempfile.TemporaryDirectory(prefix="uvt-video-") as directory:
                 audio = Path(directory) / "italiano.wav"
                 cues = load_cues(source, whisper_model=settings.whisper_model)
@@ -430,7 +436,10 @@ class TranslatorWindow(tk.Tk):
         messagebox.showinfo("Video creato", f"File salvato:\n{output}")
 
     def _resolve_input(
-        self, value: str, cookies_browser: str | None = None
+        self,
+        value: str,
+        cookies_browser: str | None = None,
+        source_language: str = "auto",
     ) -> Path:
         if not is_web_url(value):
             return Path(value)
@@ -438,7 +447,10 @@ class TranslatorWindow(tk.Tk):
             self.download_directory = tempfile.TemporaryDirectory(prefix="uvt-url-")
         self.after(0, self.status_var.set, "Download video…")
         return download_video(
-            value, self.download_directory.name, cookies_browser=cookies_browser
+            value,
+            self.download_directory.name,
+            cookies_browser=cookies_browser,
+            source_language=source_language,
         )
 
     def _toggle_overlay(self) -> None:
