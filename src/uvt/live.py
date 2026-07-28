@@ -87,6 +87,22 @@ def uninitialize_windows_com() -> None:
         ctypes.windll.ole32.CoUninitialize()
 
 
+def capture_device_names() -> list[str]:
+    try:
+        import soundcard as sc
+
+        return sorted(
+            {
+                str(device.name)
+                for device in sc.all_microphones(include_loopback=True)
+                if device.name
+            },
+            key=str.casefold,
+        )
+    except Exception:
+        return []
+
+
 class LiveTranslator:
     def __init__(
         self,
@@ -99,6 +115,7 @@ class LiveTranslator:
         speech_engine: str = "kokoro",
         voice: str = "if_sara",
         speak: bool = False,
+        capture_device: str | None = None,
         on_text: Callable[[str], None] | None = None,
         on_status: Callable[[str], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
@@ -112,6 +129,7 @@ class LiveTranslator:
         self.speech_engine = speech_engine
         self.voice = voice
         self.speak = speak
+        self.capture_device = capture_device
         self.on_text = on_text or (lambda _text: None)
         self.on_status = on_status or (lambda _text: None)
         self.on_error = on_error or (lambda _error: None)
@@ -202,9 +220,26 @@ class LiveTranslator:
             speaker = sc.default_speaker()
             if speaker is None:
                 raise LiveCaptureError("Nessuna uscita audio predefinita.")
-            microphone = sc.get_microphone(
-                id=str(speaker.name), include_loopback=True
-            )
+            if self.capture_device:
+                microphone = next(
+                    (
+                        device
+                        for device in sc.all_microphones(
+                            include_loopback=True
+                        )
+                        if str(device.name).casefold()
+                        == self.capture_device.casefold()
+                    ),
+                    None,
+                )
+                if microphone is None:
+                    raise LiveCaptureError(
+                        f"Ingresso audio non trovato: {self.capture_device}"
+                    )
+            else:
+                microphone = sc.get_microphone(
+                    id=str(speaker.name), include_loopback=True
+                )
             whisper = WhisperModel(
                 self.whisper_model, device="auto", compute_type="int8"
             )
@@ -229,7 +264,9 @@ class LiveTranslator:
                 daemon=True,
             )
             self._capture_thread.start()
-            self.on_status("Overlay OS: ascolto continuo")
+            self.on_status(
+                f"Overlay OS: ascolto {microphone.name}"
+            )
 
             while not self._stop.is_set():
                 audio = self._audio_queue.get()
