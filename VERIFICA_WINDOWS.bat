@@ -17,11 +17,13 @@ python -m pytest -q
 if errorlevel 1 goto failed
 
 where ffmpeg >nul 2>nul || goto missing_ffmpeg
+where espeak-ng >nul 2>nul || goto missing_espeak
 where ollama >nul 2>nul || goto missing_ollama
 ollama list | findstr /i "translategemma:latest" >nul || goto missing_model
+python -c "import kokoro, soundfile" || goto missing_kokoro
 
 echo.
-echo VERIFICA COMPLETATA: codice, test, FFmpeg, Ollama e modello disponibili.
+echo VERIFICA COMPLETATA: codice, test, FFmpeg, eSpeak NG, Kokoro, Ollama e modello disponibili.
 pause
 exit /b 0
 
@@ -31,6 +33,15 @@ goto failed
 
 :missing_ollama
 echo ERRORE: Ollama non trovato nel PATH.
+goto failed
+
+:missing_espeak
+echo ERRORE: eSpeak NG non trovato nel PATH.
+goto failed
+
+:missing_kokoro
+echo ERRORE: Kokoro o SoundFile non installato.
+echo Esegui nuovamente INSTALL_WINDOWS.bat.
 goto failed
 
 :missing_model
