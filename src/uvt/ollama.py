@@ -15,7 +15,7 @@ class OllamaError(RuntimeError):
 
 @dataclass(slots=True)
 class OllamaTranslator:
-    model: str = "qwen3:4b"
+    model: str = "translategemma:latest"
     url: str = "http://127.0.0.1:11434/api/chat"
     timeout: float = 300.0
 
@@ -73,6 +73,10 @@ class OllamaTranslator:
                 f"Esegui: ollama pull {self.model}. "
                 f"Modelli disponibili: {available}"
             )
+
+    def list_models(self) -> list[str]:
+        self._ensure_ready()
+        return sorted(self._installed_models(), key=str.casefold)
 
     def translate(self, text: str, source_language: str = "auto") -> str:
         self._ensure_ready()
