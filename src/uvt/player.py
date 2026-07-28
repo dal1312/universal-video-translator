@@ -60,6 +60,38 @@ class SubtitlePlayer:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
+    def prepare(self) -> None:
+        if self._engine is None:
+            self.on_status("Caricamento motore voce…")
+            self._engine = create_speech_engine(
+                self.speech_engine, self.voice, self.rate
+            )
+        total = len(self.cues)
+        first_translation: str | None = None
+        for position, cue in enumerate(self.cues, start=1):
+            if self._stop.is_set():
+                return
+            translated = self.cache.get(
+                self.translator.model, self.source_language, cue.text
+            )
+            if translated is None:
+                self.on_status(f"Pretraduzione {position}/{total}")
+                translated = self.translator.translate(
+                    cue.text, self.source_language
+                )
+                self.cache.put(
+                    self.translator.model,
+                    self.source_language,
+                    cue.text,
+                    translated,
+                )
+            if first_translation is None:
+                first_translation = translated
+        if first_translation and hasattr(self._engine, "prewarm"):
+            self.on_status("Preparazione prima battuta…")
+            self._engine.prewarm(first_translation)
+        self.on_status("Pronto alla riproduzione")
+
     def toggle_pause(self) -> bool:
         if self._pause.is_set():
             self._pause.clear()
@@ -93,9 +125,10 @@ class SubtitlePlayer:
 
     def _run(self) -> None:
         try:
-            self._engine = create_speech_engine(
-                self.speech_engine, self.voice, self.rate
-            )
+            if self._engine is None:
+                self._engine = create_speech_engine(
+                    self.speech_engine, self.voice, self.rate
+                )
             started = time.monotonic()
             self.on_status("Riproduzione")
 
