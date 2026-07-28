@@ -76,12 +76,13 @@ class OllamaTranslator:
 
     def translate(self, text: str, source_language: str = "auto") -> str:
         self._ensure_ready()
-        prompt = (
-            "Traduci il testo seguente in italiano naturale e parlato, adatto al "
-            "doppiaggio video. Mantieni significato, tono e brevità. Restituisci "
-            "soltanto la traduzione, senza note o prefissi.\n"
-            f"Lingua originale: {source_language}\nTesto: {text}"
+        system_prompt = (
+            "Sei un motore di traduzione per doppiaggio. Traduci sempre il testo "
+            "ricevuto in italiano naturale e parlato. Non ripetere il testo nella "
+            "lingua originale. Mantieni significato, tono e brevità. Rispondi "
+            "esclusivamente con la traduzione italiana, senza note né prefissi."
         )
+        prompt = f"Lingua originale: {source_language}\nTesto da tradurre:\n{text}"
         try:
             response = requests.post(
                 self.url,
@@ -90,7 +91,10 @@ class OllamaTranslator:
                     "stream": False,
                     "think": False,
                     "keep_alive": "30m",
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
                     "options": {"temperature": 0.1, "num_predict": 256},
                 },
                 timeout=self.timeout,
