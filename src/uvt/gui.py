@@ -56,6 +56,7 @@ class TranslatorWindow(tk.Tk):
         self.speech_engine_var = tk.StringVar(value="kokoro")
         self.voice_var = tk.StringVar(value="Sara (Kokoro, donna)")
         self.show_text_var = tk.BooleanVar(value=True)
+        self.live_voice_var = tk.BooleanVar(value=False)
         self.cookies_var = tk.StringVar(value="firefox")
         self.status_var = tk.StringVar(value="Pronto")
         self.dark_mode = True
@@ -185,9 +186,12 @@ class TranslatorWindow(tk.Tk):
         )
         self.overlay_button.pack(side="left", padx=4)
         self.live_button = ttk.Button(
-            controls, text="Live PC", command=self._toggle_live
+            controls, text="AI Overlay OS", command=self._toggle_live
         )
         self.live_button.pack(side="left", padx=4)
+        ttk.Checkbutton(
+            controls, text="Voce overlay", variable=self.live_voice_var
+        ).pack(side="left", padx=8)
         self.theme_button = ttk.Button(
             controls, text="Tema chiaro", command=self._toggle_theme
         )
@@ -529,21 +533,33 @@ class TranslatorWindow(tk.Tk):
     def _toggle_live(self) -> None:
         if self.live and self.live.running:
             self.live.stop()
-            self.live_button.configure(text="Live PC")
+            self.live_button.configure(text="AI Overlay OS")
             return
         settings = self._settings()
+        self.overlay.show()
+        self.overlay_button.configure(text="Nascondi overlay")
         self.live = LiveTranslator(
             translator=OllamaTranslator(model=settings.ollama_model),
             cache=TranslationCache(),
             whisper_model=settings.whisper_model,
             source_language=settings.language,
             rate=settings.rate,
+            speech_engine=settings.speech_engine,
+            voice=settings.voice,
+            speak=self.live_voice_var.get(),
             on_text=lambda text: self.after(0, self._show_text, text),
-            on_status=lambda text: self.after(0, self._set_status, text),
+            on_status=lambda text: self.after(
+                0, self._set_live_status, text
+            ),
             on_error=lambda error: self.after(0, self._show_error, error),
         )
         self.live.start()
-        self.live_button.configure(text="Stop Live")
+        self.live_button.configure(text="Stop Overlay OS")
+
+    def _set_live_status(self, text: str) -> None:
+        self.status_var.set(text)
+        if text in {"Overlay OS interrotto", "Errore Overlay OS"}:
+            self.live_button.configure(text="AI Overlay OS")
 
     def _settings(self) -> RunSettings:
         selected_voice = self.voice_var.get()
