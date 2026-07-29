@@ -144,6 +144,58 @@ class OpenAICompatibleAssistant:
             )
         return content
 
+    def plan_actions(self, instruction: str, context: str) -> str:
+        planning_prompt = (
+            "Crea un piano JSON per automatizzare Windows. Usa soltanto "
+            "queste azioni: open_url(url http/https), "
+            "open_app(app: notepad|calculator|explorer|paint), "
+            "copy_text(text), type_text(text), hotkey(keys), "
+            "press(keys), click(x,y), wait(seconds massimo 10). "
+            "Non usare shell, terminale, eliminazioni o installazioni. "
+            "Formato esatto: "
+            '{"title":"nome","actions":[{"type":"..."}]}. '
+            "Rispondi esclusivamente con JSON.\n\n"
+            f"RICHIESTA:\n{instruction}\n\n"
+            f"CONTESTO VISIBILE:\n{context[:12000]}"
+        )
+        model = self._resolve_model()
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Sei un pianificatore di automazioni Windows "
+                        "con azioni strettamente limitate."
+                    ),
+                },
+                {"role": "user", "content": planning_prompt},
+            ],
+            "temperature": 0,
+            "max_tokens": 1536,
+        }
+        try:
+            response = self._session.post(
+                f"{self.base_url.rstrip('/')}/chat/completions",
+                headers=self._headers(),
+                json=payload,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return str(
+                response.json()["choices"][0]["message"]["content"]
+            ).strip()
+        except (
+            requests.RequestException,
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise AIProviderError(
+                f"Errore pianificazione {self.provider}: {exc}"
+            ) from exc
+
 
 def create_assistant_client(
     provider: str,
@@ -189,4 +241,3 @@ def create_assistant_client(
             api_key=key,
         )
     raise AIProviderError(f"Provider AI non supportato: {provider}")
-
