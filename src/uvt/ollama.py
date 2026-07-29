@@ -182,6 +182,60 @@ class OllamaTranslator:
             num_predict=1024,
         )
 
+    def plan_actions(self, instruction: str, context: str) -> str:
+        schema = {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "actions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string"},
+                            "text": {"type": "string"},
+                            "url": {"type": "string"},
+                            "app": {"type": "string"},
+                            "keys": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "x": {"type": "integer"},
+                            "y": {"type": "integer"},
+                            "seconds": {"type": "number"},
+                        },
+                        "required": ["type"],
+                    },
+                },
+            },
+            "required": ["title", "actions"],
+        }
+        prompt = (
+            "/no_think\nCrea un piano JSON per automatizzare Windows. "
+            "Tipi consentiti: open_url(url http/https), "
+            "open_app(app: notepad|calculator|explorer|paint), "
+            "copy_text(text), type_text(text), hotkey(keys), "
+            "press(keys), click(x,y), wait(seconds massimo 10). "
+            "Non usare shell, terminale, eliminazioni, installazioni o "
+            "azioni diverse. Produci solo il JSON conforme allo schema.\n\n"
+            f"RICHIESTA:\n{instruction}\n\n"
+            f"CONTESTO VISIBILE:\n{context[:12000]}"
+        )
+        return self._chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "/no_think\nSei un pianificatore di automazioni "
+                        "Windows con azioni strettamente limitate."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            num_predict=1536,
+            response_format=schema,
+        )
+
     def translate_many(
         self, texts: list[str], source_language: str = "auto"
     ) -> list[str]:
