@@ -16,6 +16,8 @@ from .automation import (
     AutomationPlan,
     MacroStore,
 )
+from .local_api import LocalAPIServer
+from .plugins import PluginManager
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import (
@@ -71,6 +73,9 @@ class TranslatorWindow(tk.Tk):
         self.overlay = SubtitleOverlay(self)
         self.assistant_memory = AssistantMemory()
         self.macro_store = MacroStore()
+        self.plugin_manager = PluginManager()
+        self.api_server: LocalAPIServer | None = None
+        self._api_default_ollama_model = "translategemma:latest"
         self.assistant = AssistantWindow(
             self,
             self._ask_assistant,
@@ -80,6 +85,7 @@ class TranslatorWindow(tk.Tk):
             self._save_assistant_screenshot,
             self._plan_automation,
             self._run_saved_macro,
+            self._run_plugin,
         )
         self.hotkey = GlobalHotkey(self._capture_for_assistant)
         self._assistant_busy = threading.Lock()
@@ -102,6 +108,7 @@ class TranslatorWindow(tk.Tk):
         self.assistant_provider_var = tk.StringVar(value="Ollama")
         self.assistant_model_var = tk.StringVar()
         self.cookies_var = tk.StringVar(value="firefox")
+        self.api_status_var = tk.StringVar(value="API locale disattivata")
         self.status_var = tk.StringVar(value="Pronto")
         self.dark_mode = True
         self.advanced_visible = False
@@ -253,6 +260,34 @@ class TranslatorWindow(tk.Tk):
             values=("firefox", "chrome", "edge", "nessuno"),
             state="readonly",
         ).grid(row=3, column=0, sticky="ew", pady=(5, 0))
+        ttk.Separator(self.advanced_frame).grid(
+            row=4, column=0, sticky="ew", pady=12
+        )
+        ttk.Label(
+            self.advanced_frame,
+            text="API locale per plugin e integrazioni",
+        ).grid(row=5, column=0, sticky="w")
+        api_actions = ttk.Frame(
+            self.advanced_frame, style="Card.TFrame"
+        )
+        api_actions.grid(row=6, column=0, sticky="ew", pady=(6, 4))
+        self.api_button = ttk.Button(
+            api_actions,
+            text="Avvia API locale",
+            command=self._toggle_local_api,
+        )
+        self.api_button.pack(side="left")
+        ttk.Button(
+            api_actions,
+            text="Copia token",
+            command=self._copy_api_token,
+        ).pack(side="left", padx=(6, 0))
+        ttk.Label(
+            self.advanced_frame,
+            textvariable=self.api_status_var,
+            style="Subtitle.TLabel",
+            wraplength=270,
+        ).grid(row=7, column=0, sticky="w")
         self.advanced_frame.grid_remove()
 
         workspace = ttk.Frame(body, padding=(18, 0, 0, 0))
@@ -1123,6 +1158,94 @@ class TranslatorWindow(tk.Tk):
         except Exception as exc:
             self.assistant.show_error(exc)
 
+    def _run_plugin(self, context: str) -> None:
+        self.plugin_manager.reload()
+        choices = self.plugin_manager.command_choices()
+        selected = simpledialog.askstring(
+            "Plugin",
+            "Scrivi l'identificativo del comando:\n\n"
+            + "\n".join(choices),
+            parent=self.assistant,
+        )
+        if not selected:
+            return
+        identifier = selected.split("—", 1)[0].strip()
+        if "." not in identifier:
+            self.assistant.show_error(
+                ValueError("Identificativo plugin non valido.")
+            )
+            return
+        plugin_id, command_id = identifier.split(".", 1)
+        try:
+            prompt = self.plugin_manager.render(
+                plugin_id, command_id, text=context
+            )
+            self.assistant.set_busy(True, f"Plugin {identifier}…")
+            self._ask_assistant(prompt, context)
+        except Exception as exc:
+            self.assistant.show_error(exc)
+
+    def _toggle_local_api(self) -> None:
+        if self.api_server and self.api_server.running:
+            self.api_server.stop()
+            self.api_button.configure(text="Avvia API locale")
+            self.api_status_var.set("API locale disattivata")
+            return
+        self._api_default_ollama_model = (
+            self.model_var.get() or "translategemma:latest"
+        )
+        try:
+            self.api_server = LocalAPIServer(
+                assistant_handler=self._api_assistant_request,
+                macro_requester=self._api_macro_request,
+                plugins=self.plugin_manager,
+                macros=self.macro_store,
+            )
+            self.api_server.start()
+            self.api_button.configure(text="Ferma API locale")
+            self.api_status_var.set(
+                f"Attiva: {self.api_server.address}"
+            )
+        except Exception as exc:
+            self._show_error(exc)
+
+    def _copy_api_token(self) -> None:
+        if self.api_server is None:
+            messagebox.showinfo(
+                "API locale",
+                "Avvia prima l'API locale.",
+            )
+            return
+        self.clipboard_clear()
+        self.clipboard_append(self.api_server.token)
+        self.api_status_var.set("Token API copiato negli appunti")
+
+    def _api_assistant_request(
+        self,
+        instruction: str,
+        context: str,
+        provider: str,
+        model: str,
+    ) -> str:
+        client = create_assistant_client(
+            provider,
+            model,
+            ollama_model=self._api_default_ollama_model,
+        )
+        answer = client.answer(
+            instruction,
+            context,
+            history=self.assistant_memory.conversation_context(),
+        )
+        self.assistant_memory.add(
+            "API locale", instruction, context, answer
+        )
+        return answer
+
+    def _api_macro_request(self, name: str) -> None:
+        plan = self.macro_store.load(name)
+        self.after(0, self._confirm_automation, plan)
+
     def _save_assistant_screenshot(self) -> None:
         if self._last_screen_image is None:
             messagebox.showerror(
@@ -1254,6 +1377,8 @@ class TranslatorWindow(tk.Tk):
 
     def _close(self) -> None:
         self.hotkey.stop()
+        if self.api_server:
+            self.api_server.stop()
         if self.progressive:
             self.progressive.stop()
         if self.player:
