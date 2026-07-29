@@ -35,6 +35,7 @@ from .progressive import ProgressiveDubPlayer
 from .screen_assistant import (
     ContinuousOCR,
     GlobalHotkey,
+    RegionSelector,
     capture_active_window,
     extract_text,
 )
@@ -44,6 +45,7 @@ from .tts import (
     create_speech_engine,
     windows_voice_names,
 )
+from .voice_command import VoiceCommandRecorder
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +80,7 @@ class TranslatorWindow(tk.Tk):
         self.plugin_manager = PluginManager()
         self.api_server: LocalAPIServer | None = None
         self.continuous_ocr: ContinuousOCR | None = None
+        self.region_selector: RegionSelector | None = None
         self._api_default_ollama_model = "translategemma:latest"
         self.assistant = AssistantWindow(
             self,
@@ -91,6 +94,19 @@ class TranslatorWindow(tk.Tk):
             self._run_plugin,
         )
         self.hotkey = GlobalHotkey(self._capture_for_assistant)
+        self.voice_hotkey = GlobalHotkey(
+            self._voice_command_for_screen,
+            modifiers=0x0002 | 0x0004,
+            hotkey_id=0xA104,
+            label="CTRL+SHIFT+SPACE",
+        )
+        self.voice_recorder = VoiceCommandRecorder(
+            model_name="small",
+            duration=5,
+            on_status=lambda text: self.after(
+                0, self.assistant.set_busy, True, text
+            ),
+        )
         self._assistant_busy = threading.Lock()
         self._assistant_voice_busy = threading.Lock()
         self._last_screen_image: object | None = None
@@ -437,7 +453,7 @@ class TranslatorWindow(tk.Tk):
         ).pack(anchor="w")
         ttk.Label(
             assistant_actions,
-            text="Premi CTRL+SPACE da qualsiasi programma per acquisire la finestra e chiedere aiuto all’IA.",
+            text="CTRL+SPACE analizza lo schermo. CTRL+SHIFT+SPACE ascolta un comando vocale.",
             style="Subtitle.TLabel",
             wraplength=650,
         ).pack(anchor="w", pady=(4, 10))
@@ -487,6 +503,16 @@ class TranslatorWindow(tk.Tk):
             assistant_tool_row,
             text="Analizza file…",
             command=self._open_document,
+        ).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            assistant_tool_row,
+            text="Seleziona area",
+            command=self._select_screen_region,
+        ).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            assistant_tool_row,
+            text="Comando vocale",
+            command=self._voice_command_from_button,
         ).pack(side="left", padx=(8, 0))
         self.continuous_ocr_button = ttk.Button(
             assistant_tool_row,
@@ -978,6 +1004,8 @@ class TranslatorWindow(tk.Tk):
     def _start_hotkey(self) -> None:
         if not self.hotkey.start() and self.hotkey.error:
             self.status_var.set(self.hotkey.error)
+        if not self.voice_hotkey.start() and self.voice_hotkey.error:
+            self.status_var.set(self.voice_hotkey.error)
 
     def _capture_for_assistant(self) -> None:
         if not self._assistant_busy.acquire(blocking=False):
@@ -993,6 +1021,100 @@ class TranslatorWindow(tk.Tk):
             "Seleziona la finestra da analizzare: cattura tra 2 secondi…"
         )
         self.after(2000, self._capture_for_assistant)
+
+    def _select_screen_region(self) -> None:
+        if self.region_selector and self.region_selector.winfo_exists():
+            return
+        self.region_selector = RegionSelector(
+            self, self._region_selected
+        )
+
+    def _region_selected(
+        self,
+        image: object,
+        bounds: tuple[int, int, int, int],
+    ) -> None:
+        self._last_screen_image = image
+        threading.Thread(
+            target=self._run_region_ocr,
+            args=(image, bounds),
+            name="uvt-region-ocr",
+            daemon=True,
+        ).start()
+
+    def _run_region_ocr(
+        self,
+        image: object,
+        bounds: tuple[int, int, int, int],
+    ) -> None:
+        title = (
+            f"Area schermo {bounds[0]},{bounds[1]} "
+            f"— {bounds[2]},{bounds[3]}"
+        )
+        try:
+            self.after(0, self.assistant.open_loading, title)
+            context = extract_text(image)
+            self.after(
+                0,
+                self.assistant.open_context,
+                title,
+                context,
+                "Area acquisita",
+            )
+        except Exception as exc:
+            self.after(0, self.assistant.show_error, exc)
+
+    def _voice_command_from_button(self) -> None:
+        self.status_var.set(
+            "Seleziona la finestra: registrazione tra 2 secondi…"
+        )
+        self.after(2000, self._voice_command_for_screen)
+
+    def _voice_command_for_screen(self) -> None:
+        if not self._assistant_busy.acquire(blocking=False):
+            return
+        threading.Thread(
+            target=self._run_voice_command,
+            name="uvt-voice-command",
+            daemon=True,
+        ).start()
+
+    def _run_voice_command(self) -> None:
+        try:
+            capture = capture_active_window()
+            self._last_screen_image = capture.image
+            self.after(
+                0, self.assistant.open_loading, capture.title
+            )
+            instruction = self.voice_recorder.record_and_transcribe()
+            try:
+                context = extract_text(capture.image)
+            except Exception:
+                context = (
+                    "Nessun testo OCR rilevato. Usa il titolo della "
+                    "finestra come contesto."
+                )
+            self.after(
+                0,
+                self._voice_command_ready,
+                capture.title,
+                context,
+                instruction,
+            )
+        except Exception as exc:
+            self.after(0, self.assistant.deiconify)
+            self.after(0, self.assistant.show_error, exc)
+        finally:
+            self._assistant_busy.release()
+
+    def _voice_command_ready(
+        self, title: str, context: str, instruction: str
+    ) -> None:
+        self.assistant.open_context(
+            title, context, f"Comando riconosciuto: {instruction}"
+        )
+        self.assistant.set_prompt(instruction)
+        self.assistant.submit()
 
     def _run_screen_capture(self) -> None:
         try:
@@ -1481,6 +1603,7 @@ class TranslatorWindow(tk.Tk):
 
     def _close(self) -> None:
         self.hotkey.stop()
+        self.voice_hotkey.stop()
         if self.continuous_ocr:
             self.continuous_ocr.stop()
         if self.api_server:
