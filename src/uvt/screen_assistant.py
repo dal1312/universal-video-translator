@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import os
 import re
 import shutil
@@ -197,3 +198,68 @@ class GlobalHotkey:
             self._thread.join(timeout=1)
         self._thread = None
 
+
+class ContinuousOCR:
+    def __init__(
+        self,
+        on_text: Callable[[str, str, object], None],
+        on_status: Callable[[str], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
+        interval: float = 4.0,
+    ) -> None:
+        self.on_text = on_text
+        self.on_status = on_status or (lambda _text: None)
+        self.on_error = on_error or (lambda _error: None)
+        self.interval = max(2.0, float(interval))
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_digest = ""
+
+    @property
+    def running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def start(self) -> None:
+        if self.running:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="uvt-continuous-ocr",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        self.on_status("OCR continuo attivo")
+        while not self._stop.is_set():
+            try:
+                capture = capture_active_window()
+                title = capture.title.strip()
+                if title.casefold().startswith(
+                    ("ai overlay os", "universal video translator")
+                ):
+                    if self._stop.wait(self.interval):
+                        break
+                    continue
+                text = extract_text(capture.image)
+                digest = hashlib.sha256(
+                    f"{title}\0{text}".encode("utf-8")
+                ).hexdigest()
+                if digest != self._last_digest:
+                    self._last_digest = digest
+                    self.on_text(title, text, capture.image)
+            except ScreenAssistantError:
+                pass
+            except Exception as exc:
+                self.on_error(exc)
+                break
+            if self._stop.wait(self.interval):
+                break
+        self.on_status("OCR continuo interrotto")
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
+        self._thread = None
