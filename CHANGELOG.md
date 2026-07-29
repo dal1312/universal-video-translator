@@ -28,6 +28,12 @@
 - Comandi vocali contestuali tramite microfono e Whisper.
 - Scorciatoia globale `CTRL+SHIFT+SPACE` per l'assistente vocale.
 - Selezione manuale rettangolare dell'area da analizzare.
+- Configurazione persistente locale con salvataggio atomico.
+- Ripristino di modelli, voce, lingua, tema, provider e geometria.
+- Icona nell'area di notifica con comandi rapidi.
+- Opzione per ridurre nella tray alla chiusura.
+- Avvio automatico con Windows, disattivabile dall'interfaccia.
+- Avvio silenzioso nella tray tramite `--minimized`.
 
 ## 0.2.0 - 2026-07-28
 
