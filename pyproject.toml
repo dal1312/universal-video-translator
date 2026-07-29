@@ -33,10 +33,19 @@ all = [
   "yt-dlp",
   "Pillow>=10,<13",
   "pyautogui>=0.9.54,<1",
+  "pypdf>=5,<7",
+  "python-docx>=1.1,<2",
+  "PyMuPDF>=1.24,<2",
 ]
 
 assistant = ["Pillow>=10,<13"]
 automation = ["pyautogui>=0.9.54,<1"]
+documents = [
+  "Pillow>=10,<13",
+  "pypdf>=5,<7",
+  "python-docx>=1.1,<2",
+  "PyMuPDF>=1.24,<2",
+]
 
 [project.scripts]
 universal-video-translator = "uvt.gui:main"
