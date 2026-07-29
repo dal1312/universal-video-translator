@@ -193,4 +193,13 @@ class OllamaTranslator:
                 raise ValueError("numero di traduzioni non valido")
             return [item.strip() for item in translations]
         except (OllamaError, TypeError, ValueError, json.JSONDecodeError):
-            return [self.translate(text, source_language) for text in texts]
+            translations: list[str] = []
+            for text in texts:
+                try:
+                    translated = self.translate(text, source_language)
+                except OllamaError:
+                    translated = text
+                translations.append(
+                    translated.strip() if translated.strip() else text
+                )
+            return translations

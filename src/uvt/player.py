@@ -60,6 +60,27 @@ class SubtitlePlayer:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
+    def _translate(self, text: str, position: int | None = None) -> str:
+        try:
+            translated = self.cache.get(
+                self.translator.model, self.source_language, text
+            )
+            if translated is None:
+                translated = self.translator.translate(text, self.source_language)
+                self.cache.put(
+                    self.translator.model,
+                    self.source_language,
+                    text,
+                    translated,
+            )
+            return translated
+        except Exception as exc:
+            if position is not None:
+                self.on_status(
+                    f"Fallback originale per battuta {position}: {exc!s}"
+                )
+            return text
+
     def prepare(self) -> None:
         if self._engine is None:
             self.on_status("Caricamento motore voce…")
@@ -71,20 +92,8 @@ class SubtitlePlayer:
         for position, cue in enumerate(self.cues, start=1):
             if self._stop.is_set():
                 return
-            translated = self.cache.get(
-                self.translator.model, self.source_language, cue.text
-            )
-            if translated is None:
-                self.on_status(f"Pretraduzione {position}/{total}")
-                translated = self.translator.translate(
-                    cue.text, self.source_language
-                )
-                self.cache.put(
-                    self.translator.model,
-                    self.source_language,
-                    cue.text,
-                    translated,
-                )
+            translated = self._translate(cue.text, position)
+            self.on_status(f"Pretraduzione {position}/{total}")
             if first_translation is None:
                 first_translation = translated
         if first_translation and hasattr(self._engine, "prewarm"):
@@ -137,21 +146,7 @@ class SubtitlePlayer:
                     break
                 if self._stop.is_set():
                     break
-
-                translated = self.cache.get(
-                    self.translator.model, self.source_language, cue.text
-                )
-                if translated is None:
-                    self.on_status(f"Traduzione battuta {position}/{len(self.cues)}")
-                    translated = self.translator.translate(
-                        cue.text, self.source_language
-                    )
-                    self.cache.put(
-                        self.translator.model,
-                        self.source_language,
-                        cue.text,
-                        translated,
-                    )
+                translated = self._translate(cue.text, position)
                 self.on_text(translated)
                 self.on_status(f"Battuta {position}/{len(self.cues)}")
                 self._engine.speak(translated)

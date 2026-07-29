@@ -57,6 +57,12 @@ def export_italian_audio(
         for offset in range(0, len(missing), TRANSLATION_BATCH_SIZE):
             texts = missing[offset : offset + TRANSLATION_BATCH_SIZE]
             translations = translator.translate_many(texts, source_language)
+            if len(translations) < len(texts):
+                translations = translations + [
+                    text for text in texts[len(translations) :]
+                ]
+            elif len(translations) > len(texts):
+                translations = translations[: len(texts)]
             translated_by_text.update(zip(texts, translations))
             cache.put_many(
                 [

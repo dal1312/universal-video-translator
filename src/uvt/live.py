@@ -296,21 +296,25 @@ class LiveTranslator:
                     )
                 ):
                     continue
-                translated = self.cache.get(
-                    self.translator.model,
-                    self.source_language,
-                    original,
-                )
-                if translated is None:
-                    translated = self.translator.translate(
-                        original, self.source_language
-                    )
-                    self.cache.put(
+                try:
+                    translated = self.cache.get(
                         self.translator.model,
                         self.source_language,
                         original,
-                        translated,
                     )
+                    if translated is None:
+                        translated = self.translator.translate(
+                            original, self.source_language
+                        )
+                        self.cache.put(
+                            self.translator.model,
+                            self.source_language,
+                            original,
+                            translated,
+                        )
+                except Exception as exc:
+                    self.on_status(f"Fallback originale: {exc}")
+                    translated = original
                 self.on_text(translated)
                 if self.speak:
                     put_latest(self._speech_queue, translated)

@@ -235,8 +235,13 @@ class ProgressiveDubPlayer:
             translations = self.translator.translate_many(
                 texts, self.source_language
             )
-            if len(translations) != len(texts):
-                raise RuntimeError("Ollama ha saltato alcune traduzioni.")
+            if len(translations) < len(texts):
+                fallback = [
+                    text for text in texts[len(translations) :]
+                ]
+                translations.extend(fallback)
+            elif len(translations) > len(texts):
+                translations = translations[: len(texts)]
             self._translations.update(zip(texts, translations))
             self.cache.put_many(
                 [
