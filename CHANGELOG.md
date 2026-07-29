@@ -18,6 +18,10 @@
 - Anteprima completa e conferma obbligatoria prima dell'esecuzione.
 - Azioni controllate per app, URL, testo, tasti, clic e attese.
 - Macro locali salvabili e riutilizzabili.
+- Plugin dichiarativi JSON, senza esecuzione automatica di codice esterno.
+- Plugin integrati per scrittura, sviluppo e traduzione.
+- API HTTP limitata a `127.0.0.1` e protetta da token.
+- Endpoint per assistente, plugin, elenco macro e richieste macro confermate.
 
 ## 0.2.0 - 2026-07-28
 
