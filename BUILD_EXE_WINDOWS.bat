@@ -44,6 +44,9 @@ pyinstaller --noconfirm --clean --onedir --windowed ^
   --collect-all PIL ^
   --collect-all pyautogui ^
   --collect-all pyperclip ^
+  --collect-all pypdf ^
+  --collect-all docx ^
+  --collect-all pymupdf ^
   universal_video_translator.py
 
 if errorlevel 1 (
