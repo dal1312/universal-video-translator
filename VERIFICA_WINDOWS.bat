@@ -22,6 +22,7 @@ where ollama >nul 2>nul || goto missing_ollama
 where tesseract >nul 2>nul || goto missing_tesseract
 ollama list | findstr /i "translategemma:latest" >nul || goto missing_model
 python -c "import kokoro, soundfile" || goto missing_kokoro
+python -c "import PIL, pypdf, docx, pymupdf, pyautogui" || goto missing_documents
 
 echo.
 echo VERIFICA COMPLETATA: codice, test, FFmpeg, eSpeak NG, Kokoro, Tesseract, Ollama e modello disponibili.
@@ -48,6 +49,11 @@ goto failed
 :missing_tesseract
 echo ERRORE: Tesseract OCR non trovato nel PATH.
 echo Installa con: winget install UB-Mannheim.TesseractOCR
+goto failed
+
+:missing_documents
+echo ERRORE: dipendenze documenti, immagini o automazione mancanti.
+echo Esegui nuovamente INSTALL_WINDOWS.bat.
 goto failed
 
 :missing_model
