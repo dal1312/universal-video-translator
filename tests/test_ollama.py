@@ -40,3 +40,32 @@ def test_translate_many_keeps_order() -> None:
         "Secondo",
     ]
     assert translator._session.post.call_count == 1
+
+
+def test_translate_many_fallback_keeps_original_on_partial_batch_or_errors() -> None:
+    class _Translator(OllamaTranslator):
+        translate_calls: int = 0
+
+        def translate(self, text: str, _source_language: str) -> str:
+            self.translate_calls += 1
+            if self.translate_calls == 1:
+                raise OllamaError("failed")
+            return "Secondo"
+
+    translator = _Translator()
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "message": {
+            "content": json.dumps({"translations": ["Primo"]})
+        }
+    }
+    translator._session.post = Mock(return_value=response)
+
+    translator.translate = Mock(side_effect=[OllamaError("failed"), "Secondo"])
+
+    assert translator.translate_many(["First", "Second"], "auto") == [
+        "First",
+        "Secondo",
+    ]

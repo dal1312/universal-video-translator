@@ -55,3 +55,42 @@ def test_export_translates_in_batches(tmp_path: Path, monkeypatch) -> None:
     )
 
     assert translator.batch_sizes == [12, 1]
+
+
+def test_export_falls_back_to_original_when_batch_shorter(tmp_path: Path, monkeypatch) -> None:
+    generated: list[str] = []
+
+    class Translator:
+        model = "test"
+
+        def translate_many(
+            self,
+            texts: list[str],
+            _source_language: str,
+        ) -> list[str]:
+            return [f"IT {texts[0]}"]
+
+    class Engine:
+        def save(self, text: str, destination: str | Path) -> None:
+            generated.append(text)
+            Path(destination).write_bytes(b"wav")
+
+    monkeypatch.setattr(
+        "uvt.export.create_speech_engine", lambda *_args: Engine()
+    )
+    monkeypatch.setattr("uvt.export.ensure_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        "uvt.export.subprocess.run", lambda *_args, **_kwargs: None
+    )
+
+    export_italian_audio(
+        [
+            Cue(0.0, 1.0, "salve"),
+            Cue(1.0, 2.0, "mondo"),
+        ],
+        tmp_path / "output.wav",
+        translator=Translator(),  # type: ignore[arg-type]
+        cache=TranslationCache(tmp_path / "cache.json"),
+    )
+
+    assert generated == ["IT salve", "mondo"]
