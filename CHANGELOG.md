@@ -22,6 +22,9 @@
 - Plugin integrati per scrittura, sviluppo e traduzione.
 - API HTTP limitata a `127.0.0.1` e protetta da token.
 - Endpoint per assistente, plugin, elenco macro e richieste macro confermate.
+- Analisi diretta di PDF, DOCX, immagini e file di testo.
+- OCR automatico dei PDF scansionati tramite Tesseract.
+- OCR continuo opzionale della finestra attiva con overlay.
 
 ## 0.2.0 - 2026-07-28
 
