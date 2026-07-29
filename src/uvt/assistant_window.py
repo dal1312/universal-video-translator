@@ -16,6 +16,7 @@ class AssistantWindow(tk.Toplevel):
         on_save_screenshot: Callable[[], None],
         on_automation: Callable[[str, str], None],
         on_run_macro: Callable[[], None],
+        on_plugin: Callable[[str], None],
     ) -> None:
         super().__init__(master)
         self.withdraw()
@@ -31,6 +32,7 @@ class AssistantWindow(tk.Toplevel):
         self._on_save_screenshot = on_save_screenshot
         self._on_automation = on_automation
         self._on_run_macro = on_run_macro
+        self._on_plugin = on_plugin
         self._title_var = tk.StringVar(value="Finestra attiva")
         self._status_var = tk.StringVar(value="Pronto")
         self._prompt_var = tk.StringVar(value="Spiegami ciò che vedi")
@@ -123,6 +125,11 @@ class AssistantWindow(tk.Toplevel):
         ).pack(side="right")
         ttk.Button(
             quick_row, text="Macro", command=self._on_run_macro
+        ).pack(side="right", padx=(0, 6))
+        ttk.Button(
+            quick_row,
+            text="Plugin",
+            command=self.run_plugin,
         ).pack(side="right", padx=(0, 6))
         ttk.Button(
             quick_row,
@@ -228,6 +235,11 @@ class AssistantWindow(tk.Toplevel):
         self.set_result("")
         self.set_busy(True, "Preparazione automazione…")
         self._on_automation(command, context)
+
+    def run_plugin(self) -> None:
+        context = self.context.get("1.0", "end").strip()
+        if context:
+            self._on_plugin(context)
 
     def show_history(self) -> None:
         self.set_result(self._on_history())
