@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 import threading
 import tempfile
@@ -39,6 +40,7 @@ from .screen_assistant import (
     capture_active_window,
     extract_text,
 )
+from .settings import AppSettings, ConfigStore
 from .transcription import load_cues
 from .tts import (
     KOKORO_VOICES,
@@ -46,6 +48,7 @@ from .tts import (
     windows_voice_names,
 )
 from .voice_command import VoiceCommandRecorder
+from .windows_integration import StartupManager, TrayController
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,10 +64,15 @@ class RunSettings:
 
 
 class TranslatorWindow(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, *, start_minimized: bool = False) -> None:
         super().__init__()
+        self.config_store = ConfigStore()
+        saved = self.config_store.load()
+        self.startup_manager = StartupManager()
+        self._settings_save_job: str | None = None
+        self._shutting_down = False
         self.title("Universal Video Translator")
-        self.geometry("1180x720")
+        self.geometry(saved.window_geometry)
         self.minsize(980, 620)
         self.player: SubtitlePlayer | None = None
         self.progressive: ProgressiveDubPlayer | None = None
@@ -101,7 +109,7 @@ class TranslatorWindow(tk.Tk):
             label="CTRL+SHIFT+SPACE",
         )
         self.voice_recorder = VoiceCommandRecorder(
-            model_name="small",
+            model_name=saved.whisper_model,
             duration=5,
             on_status=lambda text: self.after(
                 0, self.assistant.set_busy, True, text
@@ -111,34 +119,54 @@ class TranslatorWindow(tk.Tk):
         self._assistant_voice_busy = threading.Lock()
         self._last_screen_image: object | None = None
         self._last_automation_plan: AutomationPlan | None = None
+        self.tray = TrayController(
+            lambda: self.after(0, self._restore_from_tray),
+            lambda: self.after(600, self._capture_for_assistant),
+            lambda: self.after(600, self._voice_command_for_screen),
+            lambda: self.after(0, self._close),
+        )
 
         self.file_var = tk.StringVar()
-        self.model_var = tk.StringVar(value="translategemma:latest")
-        self.language_var = tk.StringVar(value="auto")
-        self.rate_var = tk.IntVar(value=185)
-        self.whisper_var = tk.StringVar(value="small")
-        self.speech_engine_var = tk.StringVar(value="kokoro")
-        self.voice_var = tk.StringVar(value="Sara (Kokoro, donna)")
-        self.show_text_var = tk.BooleanVar(value=True)
-        self.live_voice_var = tk.BooleanVar(value=False)
+        self.model_var = tk.StringVar(value=saved.ollama_model)
+        self.language_var = tk.StringVar(value=saved.language)
+        self.rate_var = tk.IntVar(value=saved.rate)
+        self.whisper_var = tk.StringVar(value=saved.whisper_model)
+        self.speech_engine_var = tk.StringVar(value=saved.speech_engine)
+        self.voice_var = tk.StringVar(value=saved.voice)
+        self.show_text_var = tk.BooleanVar(value=saved.show_text)
+        self.live_voice_var = tk.BooleanVar(value=saved.live_voice)
         self.capture_device_var = tk.StringVar(
-            value="Audio di sistema (predefinito)"
+            value=saved.capture_device
         )
-        self.assistant_provider_var = tk.StringVar(value="Ollama")
-        self.assistant_model_var = tk.StringVar()
-        self.cookies_var = tk.StringVar(value="firefox")
+        self.assistant_provider_var = tk.StringVar(
+            value=saved.assistant_provider
+        )
+        self.assistant_model_var = tk.StringVar(
+            value=saved.assistant_model
+        )
+        self.cookies_var = tk.StringVar(value=saved.cookies_browser)
+        self.minimize_to_tray_var = tk.BooleanVar(
+            value=saved.minimize_to_tray
+        )
+        self.start_with_windows_var = tk.BooleanVar(
+            value=self.startup_manager.is_enabled()
+        )
         self.api_status_var = tk.StringVar(value="API locale disattivata")
         self.status_var = tk.StringVar(value="Pronto")
-        self.dark_mode = True
-        self.advanced_visible = False
+        self.dark_mode = saved.dark_mode
+        self.advanced_visible = saved.advanced_visible
         self._configure_theme()
         self._build()
+        self._restore_saved_layout()
+        self._bind_settings_persistence()
         self._start_hotkey()
         threading.Thread(target=self._load_models, daemon=True).start()
         threading.Thread(
             target=self._load_capture_devices, daemon=True
         ).start()
-        self.protocol("WM_DELETE_WINDOW", self._close)
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        if start_minimized:
+            self.after(250, self._hide_to_tray)
 
     def _build(self) -> None:
         root = ttk.Frame(self, padding=18)
@@ -307,6 +335,30 @@ class TranslatorWindow(tk.Tk):
             style="Subtitle.TLabel",
             wraplength=270,
         ).grid(row=7, column=0, sticky="w")
+        ttk.Separator(self.advanced_frame).grid(
+            row=8, column=0, sticky="ew", pady=12
+        )
+        ttk.Label(
+            self.advanced_frame,
+            text="INTEGRAZIONE WINDOWS",
+            style="Section.TLabel",
+        ).grid(row=9, column=0, sticky="w")
+        ttk.Checkbutton(
+            self.advanced_frame,
+            text="Avvia automaticamente con Windows",
+            variable=self.start_with_windows_var,
+            command=self._toggle_startup,
+        ).grid(row=10, column=0, sticky="w", pady=(6, 2))
+        ttk.Checkbutton(
+            self.advanced_frame,
+            text="Riduci nella tray alla chiusura",
+            variable=self.minimize_to_tray_var,
+        ).grid(row=11, column=0, sticky="w", pady=2)
+        ttk.Button(
+            self.advanced_frame,
+            text="Nascondi nella tray",
+            command=self._hide_to_tray,
+        ).grid(row=12, column=0, sticky="ew", pady=(7, 0))
         self.advanced_frame.grid_remove()
 
         workspace = ttk.Frame(body, padding=(18, 0, 0, 0))
@@ -592,6 +644,116 @@ class TranslatorWindow(tk.Tk):
             self.advanced_button.configure(
                 text="Mostra impostazioni avanzate"
             )
+        self._schedule_settings_save()
+
+    def _restore_saved_layout(self) -> None:
+        self.theme_button.configure(
+            text="Tema chiaro" if self.dark_mode else "Tema scuro"
+        )
+        self._refresh_voices()
+        if self.advanced_visible:
+            self.advanced_frame.grid()
+            self.advanced_button.configure(
+                text="Nascondi impostazioni avanzate"
+            )
+
+    def _bind_settings_persistence(self) -> None:
+        variables = (
+            self.model_var,
+            self.language_var,
+            self.rate_var,
+            self.whisper_var,
+            self.speech_engine_var,
+            self.voice_var,
+            self.show_text_var,
+            self.live_voice_var,
+            self.capture_device_var,
+            self.assistant_provider_var,
+            self.assistant_model_var,
+            self.cookies_var,
+            self.minimize_to_tray_var,
+        )
+        for variable in variables:
+            variable.trace_add(
+                "write",
+                lambda *_args: self._schedule_settings_save(),
+            )
+        self.bind(
+            "<Configure>",
+            lambda _event: self._schedule_settings_save(),
+            add="+",
+        )
+
+    def _current_app_settings(self) -> AppSettings:
+        return AppSettings(
+            ollama_model=self.model_var.get().strip()
+            or "translategemma:latest",
+            language=self.language_var.get(),
+            rate=int(self.rate_var.get()),
+            whisper_model=self.whisper_var.get(),
+            speech_engine=self.speech_engine_var.get(),
+            voice=self.voice_var.get(),
+            show_text=bool(self.show_text_var.get()),
+            live_voice=bool(self.live_voice_var.get()),
+            capture_device=self.capture_device_var.get(),
+            assistant_provider=self.assistant_provider_var.get(),
+            assistant_model=self.assistant_model_var.get().strip(),
+            cookies_browser=self.cookies_var.get(),
+            dark_mode=self.dark_mode,
+            advanced_visible=self.advanced_visible,
+            minimize_to_tray=bool(self.minimize_to_tray_var.get()),
+            window_geometry=self.geometry(),
+        )
+
+    def _schedule_settings_save(self) -> None:
+        if self._shutting_down:
+            return
+        if self._settings_save_job:
+            self.after_cancel(self._settings_save_job)
+        self._settings_save_job = self.after(700, self._save_settings)
+
+    def _save_settings(self) -> None:
+        self._settings_save_job = None
+        try:
+            self.config_store.save(self._current_app_settings())
+        except Exception:
+            pass
+
+    def _toggle_startup(self) -> None:
+        enabled = bool(self.start_with_windows_var.get())
+        try:
+            self.startup_manager.set_enabled(enabled)
+            self.status_var.set(
+                "Avvio con Windows attivato"
+                if enabled
+                else "Avvio con Windows disattivato"
+            )
+        except Exception as exc:
+            self.start_with_windows_var.set(not enabled)
+            self._show_error(exc)
+
+    def _hide_to_tray(self) -> None:
+        try:
+            self.tray.start()
+            self._save_settings()
+            self.withdraw()
+            self.status_var.set(
+                "Attivo nella tray — CTRL+SPACE apre l’assistente"
+            )
+        except Exception as exc:
+            self._show_error(exc)
+
+    def _restore_from_tray(self) -> None:
+        self.deiconify()
+        self.state("normal")
+        self.lift()
+        self.focus_force()
+
+    def _on_window_close(self) -> None:
+        if self.minimize_to_tray_var.get():
+            self._hide_to_tray()
+        else:
+            self._close()
 
     def _browse(self) -> None:
         path = filedialog.askopenfilename(
@@ -968,6 +1130,7 @@ class TranslatorWindow(tk.Tk):
         self.theme_button.configure(
             text="Tema chiaro" if self.dark_mode else "Tema scuro"
         )
+        self._schedule_settings_save()
 
     def _toggle_live(self) -> None:
         if self.live and self.live.running:
@@ -1086,6 +1249,7 @@ class TranslatorWindow(tk.Tk):
             self.after(
                 0, self.assistant.open_loading, capture.title
             )
+            self.voice_recorder.set_model(self.whisper_var.get())
             instruction = self.voice_recorder.record_and_transcribe()
             try:
                 context = extract_text(capture.image)
@@ -1554,14 +1718,17 @@ class TranslatorWindow(tk.Tk):
         )
 
     def _refresh_voices(self, _event=None) -> None:
+        current = self.voice_var.get()
         if self.speech_engine_var.get() == "kokoro":
             values = tuple(KOKORO_VOICES)
             self.voice_combo.configure(values=values)
-            self.voice_var.set(values[0])
+            if current not in values:
+                self.voice_var.set(values[0])
             return
         values = tuple(windows_voice_names()) or ("default",)
         self.voice_combo.configure(values=values)
-        self.voice_var.set(values[0])
+        if current not in values:
+            self.voice_var.set(values[0])
 
     def _load_models(self) -> None:
         try:
@@ -1602,6 +1769,17 @@ class TranslatorWindow(tk.Tk):
         self.stop_button.configure(state="disabled")
 
     def _close(self) -> None:
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        if self._settings_save_job:
+            self.after_cancel(self._settings_save_job)
+            self._settings_save_job = None
+        try:
+            self.config_store.save(self._current_app_settings())
+        except Exception:
+            pass
+        self.tray.stop()
         self.hotkey.stop()
         self.voice_hotkey.stop()
         if self.continuous_ocr:
@@ -1622,8 +1800,9 @@ class TranslatorWindow(tk.Tk):
         self.destroy()
 
 
-def main() -> int:
-    TranslatorWindow().mainloop()
+def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else argv
+    TranslatorWindow(start_minimized="--minimized" in arguments).mainloop()
     return 0
 
 
