@@ -36,10 +36,12 @@ all = [
   "pypdf>=5,<7",
   "python-docx>=1.1,<2",
   "PyMuPDF>=1.24,<2",
+  "pystray>=0.19.5,<1",
 ]
 
 assistant = ["Pillow>=10,<13"]
 automation = ["pyautogui>=0.9.54,<1"]
+windows = ["Pillow>=10,<13", "pystray>=0.19.5,<1"]
 documents = [
   "Pillow>=10,<13",
   "pypdf>=5,<7",
