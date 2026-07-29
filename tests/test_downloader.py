@@ -23,3 +23,9 @@ def test_auto_does_not_default_to_english_without_language_metadata() -> None:
     assert subtitle_language_candidates(
         "auto", None, ("en", "es", "it", "fr")
     ) == []
+
+
+def test_language_candidates_matches_regional_variant() -> None:
+    assert subtitle_language_candidates(
+        "inglese", "es", ("en-US", "es", "it")
+    ) == ["en-US"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -24,6 +25,50 @@ class MediaPreview:
             if candidate.is_file():
                 return str(candidate)
         return None
+
+    @staticmethod
+    def _ffprobe() -> str | None:
+        executable = shutil.which("ffprobe")
+        if executable:
+            return executable
+        root = Path(sys.executable).resolve().parent
+        for candidate in (root / "ffprobe.exe", root / "_internal" / "ffprobe.exe"):
+            if candidate.is_file():
+                return str(candidate)
+        return None
+
+    @staticmethod
+    def _has_media_streams(media: str | Path) -> tuple[bool, bool]:
+        ffprobe = MediaPreview._ffprobe()
+        if not ffprobe:
+            return True, True
+
+        command = [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_streams",
+            "-print_format",
+            "json",
+            str(media),
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            streams = json.loads(result.stdout or "{}").get("streams", [])
+            has_video = any(
+                stream.get("codec_type") == "video" for stream in streams
+            )
+            has_audio = any(
+                stream.get("codec_type") == "audio" for stream in streams
+            )
+            return has_video, has_audio
+        except Exception:
+            return True, True
 
     def open(self, media: str | Path, mute_audio: bool = True) -> None:
         self.stop()
@@ -66,6 +111,12 @@ class MediaPreview:
         ffplay = self._ffplay()
         if not ffplay:
             raise RuntimeError("ffplay non trovato.")
+
+        media_path = str(Path(media))
+        has_video, has_audio = self._has_media_streams(media_path)
+        if not has_video and not has_audio:
+            raise RuntimeError("Il file non contiene tracce audio o video.")
+
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         self.process = subprocess.Popen(
             [
@@ -89,34 +140,48 @@ class MediaPreview:
         )
         if self.process.stdin is None:
             raise RuntimeError("Impossibile aprire lo stream del player.")
-        self.pipeline = subprocess.Popen(
+
+        filter_parts = []
+        audio_map = "1:a:0"
+        if has_audio:
+            filter_parts = ["[0:a:0][1:a:0]amix=inputs=2:duration=longest:normalize=0[aout]"]
+            audio_map = "[aout]"
+
+        ffmpeg_command = [
+            ensure_ffmpeg(),
+            "-v",
+            "error",
+            "-re",
+            "-i",
+            media_path,
+            "-thread_queue_size",
+            "512",
+            "-f",
+            "f32le",
+            "-ar",
+            str(samplerate),
+            "-ac",
+            "1",
+            "-i",
+            "pipe:0",
+        ]
+        if has_video:
+            ffmpeg_command.extend(["-map", "0:v:0"])
+
+        ffmpeg_command.extend(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k"])
+
+        if has_audio:
+            ffmpeg_command.extend([
+                "-filter_complex",
+                ";".join(filter_parts),
+                "-map",
+                audio_map,
+            ])
+        else:
+            ffmpeg_command.extend(["-map", "1:a:0"])
+
+        ffmpeg_command.extend(
             [
-                ensure_ffmpeg(),
-                "-v",
-                "error",
-                "-re",
-                "-i",
-                str(Path(media)),
-                "-thread_queue_size",
-                "512",
-                "-f",
-                "f32le",
-                "-ar",
-                str(samplerate),
-                "-ac",
-                "1",
-                "-i",
-                "pipe:0",
-                "-map",
-                "0:v:0",
-                "-map",
-                "1:a:0",
-                "-c:v",
-                "copy",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
                 "-af",
                 "apad",
                 "-shortest",
@@ -125,7 +190,10 @@ class MediaPreview:
                 "-f",
                 "matroska",
                 "pipe:1",
-            ],
+            ]
+        )
+        self.pipeline = subprocess.Popen(
+            ffmpeg_command,
             stdin=subprocess.PIPE,
             stdout=self.process.stdin,
             stderr=subprocess.DEVNULL,

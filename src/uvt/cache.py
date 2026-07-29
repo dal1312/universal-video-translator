@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
 
 
@@ -9,7 +10,18 @@ class TranslationCache:
     def __init__(self, path: str | Path = ".uvt-cache.json") -> None:
         self.path = Path(path)
         self._data: dict[str, str] = {}
-        if self.path.exists():
+        self._load()
+
+    @classmethod
+    def _file_lock(cls) -> threading.Lock:
+        if not hasattr(cls, "_lock"):
+            cls._lock = threading.Lock()
+        return cls._lock
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        with self._file_lock():
             try:
                 raw = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(raw, dict):
@@ -26,22 +38,35 @@ class TranslationCache:
         return self._data.get(self.key(model, language, text))
 
     def put(self, model: str, language: str, text: str, translated: str) -> None:
-        self._data[self.key(model, language, text)] = translated
-        self._save()
+        with self._file_lock():
+            self._data[self.key(model, language, text)] = translated
+            self._save()
 
     def put_many(
         self, translations: list[tuple[str, str, str, str]]
     ) -> None:
         if not translations:
             return
-        for model, language, text, translated in translations:
-            self._data[self.key(model, language, text)] = translated
-        self._save()
+        with self._file_lock():
+            for model, language, text, translated in translations:
+                self._data[self.key(model, language, text)] = translated
+            self._save()
 
     def _save(self) -> None:
+        current: dict[str, str] = {}
+        if self.path.exists():
+            try:
+                loaded = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    current = {str(k): str(v) for k, v in loaded.items()}
+            except (OSError, json.JSONDecodeError):
+                current = {}
+        current.update(self._data)
+        self._data = current
+
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
         temporary.write_text(
-            json.dumps(self._data, ensure_ascii=False, indent=2),
+            json.dumps(current, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         temporary.replace(self.path)

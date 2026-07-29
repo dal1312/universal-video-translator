@@ -25,7 +25,8 @@ if not exist "%VIRTUAL_ENV%\Lib\site-packages\espeakng_loader\espeak-ng-data" (
   exit /b 1
 )
 
-if exist "dist\UniversalVideoTranslator.exe" del /q "dist\UniversalVideoTranslator.exe"
+if exist "dist\UniversalVideoTranslator\UniversalVideoTranslator.exe" del /q "dist\UniversalVideoTranslator\UniversalVideoTranslator.exe"
+if exist "dist\UniversalVideoTranslator" rmdir /s /q "dist\UniversalVideoTranslator"
 
 pyinstaller --noconfirm --clean --onedir --windowed ^
   --name UniversalVideoTranslator ^
