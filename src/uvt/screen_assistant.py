@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import tkinter as tk
 from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
@@ -135,8 +136,22 @@ class GlobalHotkey:
     _WM_HOTKEY = 0x0312
     _WM_QUIT = 0x0012
 
-    def __init__(self, callback: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        callback: Callable[[], None],
+        *,
+        modifiers: int | None = None,
+        virtual_key: int | None = None,
+        hotkey_id: int | None = None,
+        label: str = "CTRL+SPACE",
+    ) -> None:
         self.callback = callback
+        self.modifiers = (
+            self._MOD_CONTROL if modifiers is None else modifiers
+        )
+        self.virtual_key = self._VK_SPACE if virtual_key is None else virtual_key
+        self.hotkey_id = self._HOTKEY_ID if hotkey_id is None else hotkey_id
+        self.label = label
         self._thread: threading.Thread | None = None
         self._thread_id = 0
         self._ready = threading.Event()
@@ -164,10 +179,13 @@ class GlobalHotkey:
         kernel32 = ctypes.windll.kernel32
         self._thread_id = int(kernel32.GetCurrentThreadId())
         if not user32.RegisterHotKey(
-            None, self._HOTKEY_ID, self._MOD_CONTROL, self._VK_SPACE
+            None,
+            self.hotkey_id,
+            self.modifiers,
+            self.virtual_key,
         ):
             self.error = (
-                "CTRL+SPACE è già utilizzato da un altro programma."
+                f"{self.label} è già utilizzato da un altro programma."
             )
             self._ready.set()
             return
@@ -179,14 +197,14 @@ class GlobalHotkey:
             ) > 0:
                 if (
                     message.message == self._WM_HOTKEY
-                    and message.wParam == self._HOTKEY_ID
+                    and message.wParam == self.hotkey_id
                 ):
                     try:
                         self.callback()
                     except Exception:
                         continue
         finally:
-            user32.UnregisterHotKey(None, self._HOTKEY_ID)
+            user32.UnregisterHotKey(None, self.hotkey_id)
             self._thread_id = 0
 
     def stop(self) -> None:
@@ -263,3 +281,99 @@ class ContinuousOCR:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
         self._thread = None
+
+
+class RegionSelector(tk.Toplevel):
+    def __init__(
+        self,
+        master: tk.Misc,
+        on_selected: Callable[[object, tuple[int, int, int, int]], None],
+    ) -> None:
+        super().__init__(master)
+        self.on_selected = on_selected
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-alpha", 0.28)
+        self.configure(bg="black")
+        self._origin_x = self._origin_y = 0
+        self._start_x = self._start_y = 0
+        self._rectangle = None
+
+        if os.name == "nt":
+            user32 = ctypes.windll.user32
+            self._origin_x = int(user32.GetSystemMetrics(76))
+            self._origin_y = int(user32.GetSystemMetrics(77))
+            width = int(user32.GetSystemMetrics(78))
+            height = int(user32.GetSystemMetrics(79))
+        else:
+            width = self.winfo_screenwidth()
+            height = self.winfo_screenheight()
+        self.geometry(
+            f"{width}x{height}{self._origin_x:+d}{self._origin_y:+d}"
+        )
+        self.canvas = tk.Canvas(
+            self,
+            bg="black",
+            cursor="crosshair",
+            highlightthickness=0,
+        )
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.create_text(
+            width // 2,
+            35,
+            text="Trascina per selezionare l’area — ESC annulla",
+            fill="white",
+            font=("Segoe UI", 14, "bold"),
+        )
+        self.canvas.bind("<ButtonPress-1>", self._start)
+        self.canvas.bind("<B1-Motion>", self._move)
+        self.canvas.bind("<ButtonRelease-1>", self._finish)
+        self.bind("<Escape>", lambda _event: self.destroy())
+        self.focus_force()
+        self.grab_set()
+
+    def _start(self, event: tk.Event) -> None:
+        self._start_x, self._start_y = event.x, event.y
+        self._rectangle = self.canvas.create_rectangle(
+            event.x,
+            event.y,
+            event.x,
+            event.y,
+            outline="#3b82f6",
+            width=3,
+        )
+
+    def _move(self, event: tk.Event) -> None:
+        if self._rectangle is not None:
+            self.canvas.coords(
+                self._rectangle,
+                self._start_x,
+                self._start_y,
+                event.x,
+                event.y,
+            )
+
+    def _finish(self, event: tk.Event) -> None:
+        x1, x2 = sorted((self._start_x, event.x))
+        y1, y2 = sorted((self._start_y, event.y))
+        if x2 - x1 < 20 or y2 - y1 < 20:
+            self.destroy()
+            return
+        bounds = (
+            x1 + self._origin_x,
+            y1 + self._origin_y,
+            x2 + self._origin_x,
+            y2 + self._origin_y,
+        )
+        self.grab_release()
+        self.withdraw()
+        self.after(120, self._capture, bounds)
+
+    def _capture(self, bounds: tuple[int, int, int, int]) -> None:
+        try:
+            from PIL import ImageGrab
+
+            image = ImageGrab.grab(bbox=bounds, all_screens=True)
+            self.on_selected(image, bounds)
+        finally:
+            self.destroy()
