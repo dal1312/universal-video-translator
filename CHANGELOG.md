@@ -25,6 +25,9 @@
 - Analisi diretta di PDF, DOCX, immagini e file di testo.
 - OCR automatico dei PDF scansionati tramite Tesseract.
 - OCR continuo opzionale della finestra attiva con overlay.
+- Comandi vocali contestuali tramite microfono e Whisper.
+- Scorciatoia globale `CTRL+SHIFT+SPACE` per l'assistente vocale.
+- Selezione manuale rettangolare dell'area da analizzare.
 
 ## 0.2.0 - 2026-07-28
 
