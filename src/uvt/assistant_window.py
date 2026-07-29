@@ -213,6 +213,10 @@ class AssistantWindow(tk.Toplevel):
         self.context.delete("1.0", "end")
         self.context.insert("1.0", text)
 
+    def set_prompt(self, text: str) -> None:
+        self._prompt_var.set(text)
+        self.prompt.icursor("end")
+
     def set_result(self, text: str) -> None:
         self.result.configure(state="normal")
         self.result.delete("1.0", "end")
