@@ -32,9 +32,11 @@ all = [
   "soundfile>=0.12,<1",
   "yt-dlp",
   "Pillow>=10,<13",
+  "pyautogui>=0.9.54,<1",
 ]
 
 assistant = ["Pillow>=10,<13"]
+automation = ["pyautogui>=0.9.54,<1"]
 
 [project.scripts]
 universal-video-translator = "uvt.gui:main"
