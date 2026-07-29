@@ -14,6 +14,8 @@ class AssistantWindow(tk.Toplevel):
         on_clear_history: Callable[[], None],
         on_speak: Callable[[str], None],
         on_save_screenshot: Callable[[], None],
+        on_automation: Callable[[str, str], None],
+        on_run_macro: Callable[[], None],
     ) -> None:
         super().__init__(master)
         self.withdraw()
@@ -27,6 +29,8 @@ class AssistantWindow(tk.Toplevel):
         self._on_clear_history = on_clear_history
         self._on_speak = on_speak
         self._on_save_screenshot = on_save_screenshot
+        self._on_automation = on_automation
+        self._on_run_macro = on_run_macro
         self._title_var = tk.StringVar(value="Finestra attiva")
         self._status_var = tk.StringVar(value="Pronto")
         self._prompt_var = tk.StringVar(value="Spiegami ciò che vedi")
@@ -117,6 +121,14 @@ class AssistantWindow(tk.Toplevel):
         ttk.Button(
             quick_row, text="Cronologia", command=self.show_history
         ).pack(side="right")
+        ttk.Button(
+            quick_row, text="Macro", command=self._on_run_macro
+        ).pack(side="right", padx=(0, 6))
+        ttk.Button(
+            quick_row,
+            text="Automatizza",
+            command=self.plan_automation,
+        ).pack(side="right", padx=(0, 6))
 
         tk.Label(
             root,
@@ -207,6 +219,15 @@ class AssistantWindow(tk.Toplevel):
     def quick_submit(self, instruction: str) -> None:
         self._prompt_var.set(instruction)
         self.submit()
+
+    def plan_automation(self) -> None:
+        command = self._prompt_var.get().strip()
+        context = self.context.get("1.0", "end").strip()
+        if not command or not context:
+            return
+        self.set_result("")
+        self.set_busy(True, "Preparazione automazione…")
+        self._on_automation(command, context)
 
     def show_history(self) -> None:
         self.set_result(self._on_history())
