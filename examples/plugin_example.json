@@ -1,0 +1,13 @@
+{
+  "id": "example-notes",
+  "name": "Assistente appunti",
+  "version": "1.0",
+  "description": "Esempio di plugin dichiarativo senza codice eseguibile.",
+  "commands": [
+    {
+      "id": "action-list",
+      "title": "Crea lista attività",
+      "prompt": "Trasforma il testo visibile in una lista operativa ordinata per priorità."
+    }
+  ]
+}
