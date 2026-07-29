@@ -5,12 +5,17 @@ import threading
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .cache import TranslationCache
 from .assistant_window import AssistantWindow
 from .assistant_memory import AssistantMemory
 from .ai_provider import create_assistant_client
+from .automation import (
+    AutomationExecutor,
+    AutomationPlan,
+    MacroStore,
+)
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import (
@@ -65,6 +70,7 @@ class TranslatorWindow(tk.Tk):
         self.download_directory: tempfile.TemporaryDirectory | None = None
         self.overlay = SubtitleOverlay(self)
         self.assistant_memory = AssistantMemory()
+        self.macro_store = MacroStore()
         self.assistant = AssistantWindow(
             self,
             self._ask_assistant,
@@ -72,11 +78,14 @@ class TranslatorWindow(tk.Tk):
             self.assistant_memory.clear,
             self._speak_assistant_result,
             self._save_assistant_screenshot,
+            self._plan_automation,
+            self._run_saved_macro,
         )
         self.hotkey = GlobalHotkey(self._capture_for_assistant)
         self._assistant_busy = threading.Lock()
         self._assistant_voice_busy = threading.Lock()
         self._last_screen_image: object | None = None
+        self._last_automation_plan: AutomationPlan | None = None
 
         self.file_var = tk.StringVar()
         self.model_var = tk.StringVar(value="translategemma:latest")
@@ -998,6 +1007,121 @@ class TranslatorWindow(tk.Tk):
             self.assistant_model_var.set(self.model_var.get())
         else:
             self.assistant_model_var.set("")
+
+    def _plan_automation(self, instruction: str, context: str) -> None:
+        threading.Thread(
+            target=self._run_automation_planner,
+            args=(
+                instruction,
+                context,
+                self.assistant_provider_var.get(),
+                self.assistant_model_var.get(),
+                self.model_var.get(),
+            ),
+            name="uvt-automation-planner",
+            daemon=True,
+        ).start()
+
+    def _run_automation_planner(
+        self,
+        instruction: str,
+        context: str,
+        provider: str,
+        assistant_model: str,
+        ollama_model: str,
+    ) -> None:
+        try:
+            client = create_assistant_client(
+                provider,
+                assistant_model,
+                ollama_model=ollama_model or "translategemma:latest",
+            )
+            payload = client.plan_actions(instruction, context)
+            plan = AutomationPlan.from_payload(payload)
+            self.after(0, self._confirm_automation, plan)
+        except Exception as exc:
+            self.after(0, self.assistant.show_error, exc)
+
+    def _confirm_automation(self, plan: AutomationPlan) -> None:
+        self._last_automation_plan = plan
+        self.assistant.set_result(plan.description())
+        self.assistant.set_busy(False, "Piano pronto: conferma richiesta")
+        confirmed = messagebox.askyesno(
+            "Conferma automazione",
+            "Verranno eseguite queste azioni:\n\n"
+            f"{plan.description()}\n\nProcedere?",
+            parent=self.assistant,
+        )
+        if not confirmed:
+            self.assistant.set_busy(False, "Automazione annullata")
+            return
+        self.assistant.withdraw()
+        threading.Thread(
+            target=self._execute_automation,
+            args=(plan,),
+            name="uvt-automation-executor",
+            daemon=True,
+        ).start()
+
+    def _execute_automation(self, plan: AutomationPlan) -> None:
+        try:
+            executor = AutomationExecutor(
+                on_status=lambda text: self.after(
+                    0, self.status_var.set, text
+                )
+            )
+            executor.execute(plan)
+            self.after(0, self._automation_complete, plan)
+        except Exception as exc:
+            self.after(0, self.assistant.deiconify)
+            self.after(0, self.assistant.show_error, exc)
+
+    def _automation_complete(self, plan: AutomationPlan) -> None:
+        self.assistant.deiconify()
+        self.assistant.lift()
+        self.assistant.set_result(
+            f"Automazione completata:\n\n{plan.description()}"
+        )
+        self.assistant.set_busy(False, "Automazione completata")
+        if messagebox.askyesno(
+            "Salva macro",
+            "Vuoi salvare questa sequenza come macro riutilizzabile?",
+            parent=self.assistant,
+        ):
+            name = simpledialog.askstring(
+                "Nome macro",
+                "Inserisci il nome della macro:",
+                initialvalue=plan.title,
+                parent=self.assistant,
+            )
+            if name:
+                try:
+                    self.macro_store.save(name, plan)
+                    self.assistant.set_busy(
+                        False, f"Macro salvata: {name}"
+                    )
+                except Exception as exc:
+                    self.assistant.show_error(exc)
+
+    def _run_saved_macro(self) -> None:
+        names = self.macro_store.names()
+        if not names:
+            messagebox.showinfo(
+                "Macro", "Non ci sono macro salvate.", parent=self.assistant
+            )
+            return
+        name = simpledialog.askstring(
+            "Esegui macro",
+            "Scrivi il nome della macro:\n\n" + "\n".join(names),
+            parent=self.assistant,
+        )
+        if not name:
+            return
+        try:
+            plan = self.macro_store.load(name)
+            self._confirm_automation(plan)
+        except Exception as exc:
+            self.assistant.show_error(exc)
 
     def _save_assistant_screenshot(self) -> None:
         if self._last_screen_image is None:
