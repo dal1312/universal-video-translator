@@ -21,6 +21,13 @@ class VoiceCommandRecorder:
         self._model = None
         self._model_lock = threading.Lock()
 
+    def set_model(self, model_name: str) -> None:
+        selected = model_name.strip() or "small"
+        with self._model_lock:
+            if selected != self.model_name:
+                self.model_name = selected
+                self._model = None
+
     def _whisper(self):
         with self._model_lock:
             if self._model is None:
@@ -84,4 +91,3 @@ class VoiceCommandRecorder:
         if not text:
             raise VoiceCommandError("Comando vocale non riconosciuto.")
         return text
-
