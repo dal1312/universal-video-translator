@@ -19,6 +19,7 @@ from .automation import (
 from .local_api import LocalAPIServer
 from .plugins import PluginManager
 from .downloader import download_video, is_web_url
+from .documents import load_document
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import (
     LiveTranslator,
@@ -32,6 +33,7 @@ from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
 from .screen_assistant import (
+    ContinuousOCR,
     GlobalHotkey,
     capture_active_window,
     extract_text,
@@ -75,6 +77,7 @@ class TranslatorWindow(tk.Tk):
         self.macro_store = MacroStore()
         self.plugin_manager = PluginManager()
         self.api_server: LocalAPIServer | None = None
+        self.continuous_ocr: ContinuousOCR | None = None
         self._api_default_ollama_model = "translategemma:latest"
         self.assistant = AssistantWindow(
             self,
@@ -473,7 +476,24 @@ class TranslatorWindow(tk.Tk):
             text="Acquisisci finestra attiva",
             command=self._capture_from_button,
         )
-        self.assistant_button.pack(anchor="w")
+        assistant_tool_row = ttk.Frame(
+            assistant_actions, style="Card.TFrame"
+        )
+        assistant_tool_row.pack(fill="x")
+        self.assistant_button.pack(
+            in_=assistant_tool_row, side="left"
+        )
+        ttk.Button(
+            assistant_tool_row,
+            text="Analizza file…",
+            command=self._open_document,
+        ).pack(side="left", padx=(8, 0))
+        self.continuous_ocr_button = ttk.Button(
+            assistant_tool_row,
+            text="Avvia OCR continuo",
+            command=self._toggle_continuous_ocr,
+        )
+        self.continuous_ocr_button.pack(side="left", padx=(8, 0))
 
         output_card = ttk.Frame(
             workspace, padding=16, style="Card.TFrame"
@@ -992,6 +1012,90 @@ class TranslatorWindow(tk.Tk):
         finally:
             self._assistant_busy.release()
 
+    def _open_document(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Analizza documento o immagine",
+            filetypes=(
+                (
+                    "Documenti e immagini",
+                    "*.pdf *.docx *.txt *.md *.csv *.json "
+                    "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp",
+                ),
+                ("Tutti i file", "*.*"),
+            ),
+        )
+        if not path:
+            return
+        self.status_var.set("Caricamento documento…")
+        threading.Thread(
+            target=self._load_document_context,
+            args=(path,),
+            name="uvt-document-loader",
+            daemon=True,
+        ).start()
+
+    def _load_document_context(self, path: str) -> None:
+        try:
+            document = load_document(path)
+            status = (
+                f"{document.kind} caricato"
+                + (
+                    f" — {document.pages} pagine"
+                    if document.pages > 1
+                    else ""
+                )
+            )
+            self.after(
+                0,
+                self.assistant.open_context,
+                document.title,
+                document.text,
+                status,
+            )
+            self.after(0, self.status_var.set, status)
+        except Exception as exc:
+            self.after(0, self._show_error, exc)
+
+    def _toggle_continuous_ocr(self) -> None:
+        if self.continuous_ocr and self.continuous_ocr.running:
+            self.continuous_ocr.stop()
+            self.continuous_ocr_button.configure(
+                text="Avvia OCR continuo"
+            )
+            return
+        self.overlay.show()
+        self.overlay_button.configure(text="Nascondi overlay")
+        self.continuous_ocr = ContinuousOCR(
+            on_text=lambda title, text, image: self.after(
+                0, self._continuous_ocr_update, title, text, image
+            ),
+            on_status=lambda text: self.after(
+                0, self._continuous_ocr_status, text
+            ),
+            on_error=lambda error: self.after(
+                0, self._show_error, error
+            ),
+        )
+        self.continuous_ocr.start()
+        self.continuous_ocr_button.configure(
+            text="Ferma OCR continuo"
+        )
+
+    def _continuous_ocr_update(
+        self, title: str, text: str, image: object
+    ) -> None:
+        self._last_screen_image = image
+        preview = text if len(text) <= 1200 else text[:1200] + "…"
+        self.overlay.show_text(preview)
+        self.status_var.set(f"OCR continuo: {title}")
+
+    def _continuous_ocr_status(self, text: str) -> None:
+        self.status_var.set(text)
+        if text == "OCR continuo interrotto":
+            self.continuous_ocr_button.configure(
+                text="Avvia OCR continuo"
+            )
+
     def _ask_assistant(self, instruction: str, context: str) -> None:
         title = self.assistant.window_title
         threading.Thread(
@@ -1377,6 +1481,8 @@ class TranslatorWindow(tk.Tk):
 
     def _close(self) -> None:
         self.hotkey.stop()
+        if self.continuous_ocr:
+            self.continuous_ocr.stop()
         if self.api_server:
             self.api_server.stop()
         if self.progressive:
