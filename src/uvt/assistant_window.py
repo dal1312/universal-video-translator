@@ -198,6 +198,17 @@ class AssistantWindow(tk.Toplevel):
         self.lift()
         self.focus_force()
 
+    def open_context(
+        self, title: str, text: str, status: str = "Documento caricato"
+    ) -> None:
+        self._title_var.set(title)
+        self.set_context(text)
+        self.set_result("")
+        self.set_busy(False, status)
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
     def set_context(self, text: str) -> None:
         self.context.delete("1.0", "end")
         self.context.insert("1.0", text)
