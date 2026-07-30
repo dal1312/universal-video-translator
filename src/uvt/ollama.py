@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from difflib import SequenceMatcher
 import shutil
 import subprocess
 import time
@@ -8,10 +10,90 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import requests
+from langdetect import DetectorFactory, LangDetectException, detect_langs
 
 
 class OllamaError(RuntimeError):
     pass
+
+
+_NON_ITALIAN_OUTPUT = re.compile(
+    r"\b("
+    r"the|this|that|with|from|about|working|people|sentence|"
+    r"el|los|las|esta|está|estan|están|policia|policía|"
+    r"britanico|británico|regreso|regresó|afectado|presencio|"
+    r"presenció|ejercicio|funcionando"
+    r")\b",
+    re.IGNORECASE,
+)
+_ITALIAN_LANGUAGE_NAMES = {"it", "ita", "italian", "italiano", "italiana"}
+DetectorFactory.seed = 0
+
+
+def _normalized_text(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def _clean_translation(value: str) -> str:
+    cleaned = value.strip()
+    quote_pairs = {
+        '"': '"',
+        "'": "'",
+        "“": "”",
+        "«": "»",
+    }
+    if (
+        len(cleaned) >= 2
+        and cleaned[0] in quote_pairs
+        and cleaned[-1] == quote_pairs[cleaned[0]]
+    ):
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
+def _detected_language(value: str) -> tuple[str | None, float]:
+    words = re.findall(r"[^\W\d_]+", value, re.UNICODE)
+    if len(words) < 3 or sum(map(len, words)) < 12:
+        return None, 0.0
+    try:
+        candidate = detect_langs(value)[0]
+    except LangDetectException:
+        return None, 0.0
+    return candidate.lang, float(candidate.prob)
+
+
+def _source_is_italian(source: str, source_language: str) -> bool:
+    if source_language.casefold() in _ITALIAN_LANGUAGE_NAMES:
+        return True
+    language, confidence = _detected_language(source)
+    return language == "it" and confidence >= 0.70
+
+
+def _translation_is_valid(
+    source: str, translated: str, source_language: str = "auto"
+) -> bool:
+    source_normalized = _normalized_text(source)
+    translated_normalized = _normalized_text(translated)
+    if not translated_normalized:
+        return False
+    if source_normalized == translated_normalized:
+        return _source_is_italian(source, source_language)
+    if _NON_ITALIAN_OUTPUT.search(translated):
+        return False
+    language, confidence = _detected_language(translated)
+    if language is not None and language != "it" and confidence >= 0.78:
+        return False
+    if len(source_normalized) < 24:
+        return True
+    return SequenceMatcher(
+        None, source_normalized, translated_normalized
+    ).ratio() < 0.92
+
+
+def _needs_translation_retry(
+    source: str, translated: str, source_language: str = "auto"
+) -> bool:
+    return not _translation_is_valid(source, translated, source_language)
 
 
 @dataclass(slots=True)
@@ -23,6 +105,13 @@ class OllamaTranslator:
     _session: requests.Session = field(
         default_factory=requests.Session, init=False, repr=False
     )
+    _last_failed_indices: tuple[int, ...] = field(
+        default=(), init=False, repr=False
+    )
+
+    @property
+    def last_failed_indices(self) -> tuple[int, ...]:
+        return self._last_failed_indices
 
     def _base_url(self) -> str:
         parsed = urlsplit(self.url)
@@ -145,13 +234,75 @@ class OllamaTranslator:
             num_predict=256,
         )
 
+    def _translate_strict(
+        self,
+        text: str,
+        source_language: str = "auto",
+        previous: str | None = None,
+        following: str | None = None,
+    ) -> str:
+        system_prompt = (
+            "/no_think\nTraduci obbligatoriamente in italiano naturale. "
+            "Il testo puo essere in inglese, spagnolo, francese, tedesco o gia "
+            "parzialmente tradotto. Se non e italiano, non copiarlo: traducilo. "
+            "Rispondi solo con la versione italiana finale, senza note."
+        )
+        context = {
+            "previous_context": previous or "",
+            "text_to_translate": text,
+            "following_context": following or "",
+        }
+        return self._chat(
+            [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": "/no_think\n"
+                    + json.dumps(context, ensure_ascii=False),
+                },
+            ],
+            num_predict=384,
+        )
+
+    def _finalize_translation(
+        self,
+        text: str,
+        translated: str,
+        source_language: str,
+        previous: str | None = None,
+        following: str | None = None,
+    ) -> tuple[str, bool]:
+        translated = _clean_translation(translated)
+        if not _needs_translation_retry(text, translated, source_language):
+            return translated, True
+        try:
+            retry = self._translate_strict(
+                text, source_language, previous, following
+            )
+            retry = _clean_translation(retry)
+        except OllamaError:
+            return text, False
+        if _translation_is_valid(text, retry, source_language):
+            return retry, True
+        return text, False
+
     def translate_many(
         self, texts: list[str], source_language: str = "auto"
     ) -> list[str]:
         if not texts:
+            self._last_failed_indices = ()
             return []
         if len(texts) == 1:
-            return [self.translate(texts[0], source_language)]
+            try:
+                translated = self.translate(texts[0], source_language)
+            except OllamaError:
+                self._last_failed_indices = (0,)
+                return [texts[0]]
+            finalized, valid = self._finalize_translation(
+                texts[0], translated, source_language
+            )
+            self._last_failed_indices = () if valid else (0,)
+            return [finalized]
 
         schema = {
             "type": "object",
@@ -191,6 +342,42 @@ class OllamaTranslator:
                 )
             ):
                 raise ValueError("numero di traduzioni non valido")
-            return [item.strip() for item in translations]
+            finalized: list[str] = []
+            failed: list[int] = []
+            for index, (text, translated) in enumerate(
+                zip(texts, translations)
+            ):
+                result, valid = self._finalize_translation(
+                    text,
+                    translated,
+                    source_language,
+                    texts[index - 1] if index else None,
+                    texts[index + 1] if index + 1 < len(texts) else None,
+                )
+                finalized.append(result)
+                if not valid:
+                    failed.append(index)
+            self._last_failed_indices = tuple(failed)
+            return finalized
         except (OllamaError, TypeError, ValueError, json.JSONDecodeError):
-            return [self.translate(text, source_language) for text in texts]
+            translations: list[str] = []
+            failed: list[int] = []
+            for index, text in enumerate(texts):
+                try:
+                    translated = self.translate(text, source_language)
+                except OllamaError:
+                    translations.append(text)
+                    failed.append(index)
+                    continue
+                result, valid = self._finalize_translation(
+                    text,
+                    translated,
+                    source_language,
+                    texts[index - 1] if index else None,
+                    texts[index + 1] if index + 1 < len(texts) else None,
+                )
+                translations.append(result)
+                if not valid:
+                    failed.append(index)
+            self._last_failed_indices = tuple(failed)
+            return translations

@@ -166,10 +166,38 @@ class LiveTranslator:
             except RuntimeError:
                 pass
 
-    def _capture(self, microphone, sample_rate: int) -> None:
+    def _capture(self, sample_rate: int) -> None:
+        com_initialized = False
         try:
+            import soundcard as sc
+
+            # SoundCard performs its own first COM initialization at import.
+            com_initialized = initialize_windows_com()
+            if self.capture_device:
+                microphone = next(
+                    (
+                        device
+                        for device in sc.all_microphones(include_loopback=True)
+                        if str(device.name).casefold()
+                        == self.capture_device.casefold()
+                    ),
+                    None,
+                )
+                if microphone is None:
+                    raise LiveCaptureError(
+                        f"Ingresso audio non trovato: {self.capture_device}"
+                    )
+            else:
+                speaker = sc.default_speaker()
+                if speaker is None:
+                    raise LiveCaptureError("Nessuna uscita audio predefinita.")
+                microphone = sc.get_microphone(
+                    id=str(speaker.name), include_loopback=True
+                )
+
             frames = round(sample_rate * self.chunk_seconds)
             with microphone.recorder(samplerate=sample_rate) as recorder:
+                self.on_status(f"Overlay OS: ascolto {microphone.name}")
                 while not self._stop.is_set():
                     audio = recorder.record(numframes=frames)
                     if self._stop.is_set():
@@ -180,10 +208,15 @@ class LiveTranslator:
                 self.on_error(LiveCaptureError(f"Cattura audio fallita: {exc}"))
                 self._stop.set()
                 put_latest(self._audio_queue, _END)
+        finally:
+            if com_initialized:
+                uninitialize_windows_com()
 
     def _speak(self) -> None:
         com_initialized = False
         try:
+            if self.speech_engine == "kokoro":
+                import soundcard  # noqa: F401
             com_initialized = initialize_windows_com()
             self._engine = create_speech_engine(
                 self.speech_engine, self.voice, self.rate
@@ -213,33 +246,9 @@ class LiveTranslator:
     def _run(self) -> None:
         try:
             import numpy as np
-            import soundcard as sc
             from faster_whisper import WhisperModel
 
             self.on_status("Overlay OS: caricamento Whisper…")
-            speaker = sc.default_speaker()
-            if speaker is None:
-                raise LiveCaptureError("Nessuna uscita audio predefinita.")
-            if self.capture_device:
-                microphone = next(
-                    (
-                        device
-                        for device in sc.all_microphones(
-                            include_loopback=True
-                        )
-                        if str(device.name).casefold()
-                        == self.capture_device.casefold()
-                    ),
-                    None,
-                )
-                if microphone is None:
-                    raise LiveCaptureError(
-                        f"Ingresso audio non trovato: {self.capture_device}"
-                    )
-            else:
-                microphone = sc.get_microphone(
-                    id=str(speaker.name), include_loopback=True
-                )
             whisper = WhisperModel(
                 self.whisper_model, device="auto", compute_type="int8"
             )
@@ -260,13 +269,10 @@ class LiveTranslator:
             language = language_codes.get(self.source_language)
             self._capture_thread = threading.Thread(
                 target=self._capture,
-                args=(microphone, sample_rate),
+                args=(sample_rate,),
                 daemon=True,
             )
             self._capture_thread.start()
-            self.on_status(
-                f"Overlay OS: ascolto {microphone.name}"
-            )
 
             while not self._stop.is_set():
                 audio = self._audio_queue.get()
@@ -296,21 +302,54 @@ class LiveTranslator:
                     )
                 ):
                     continue
-                translated = self.cache.get(
-                    self.translator.model,
-                    self.source_language,
-                    original,
-                )
-                if translated is None:
-                    translated = self.translator.translate(
-                        original, self.source_language
-                    )
-                    self.cache.put(
+                translated = None
+                try:
+                    translated = self.cache.get(
                         self.translator.model,
                         self.source_language,
                         original,
-                        translated,
                     )
+                except Exception as exc:
+                    self.on_status(f"Cache traduzione non disponibile: {exc}")
+                if translated is None:
+                    try:
+                        if hasattr(self.translator, "translate_many"):
+                            translated = self.translator.translate_many(
+                                [original], self.source_language
+                            )[0]
+                        else:
+                            translated = self.translator.translate(
+                                original, self.source_language
+                            )
+                    except Exception as exc:
+                        self.on_status(f"Fallback originale: {exc}")
+                        translated = original
+                    else:
+                        reported_failures = getattr(
+                            self.translator,
+                            "last_failed_indices",
+                            None,
+                        )
+                        failed = (
+                            bool(reported_failures)
+                            if reported_failures is not None
+                            else translated == original
+                        )
+                        if failed:
+                            self.on_status(
+                                "Segmento non tradotto; uso testo originale"
+                            )
+                        try:
+                            self.cache.put(
+                                self.translator.model,
+                                self.source_language,
+                                original,
+                                translated,
+                            )
+                        except Exception as exc:
+                            self.on_status(
+                                f"Cache traduzione non aggiornata: {exc}"
+                            )
                 self.on_text(translated)
                 if self.speak:
                     put_latest(self._speech_queue, translated)

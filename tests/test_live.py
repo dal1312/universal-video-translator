@@ -1,7 +1,14 @@
 import queue
+import sys
+import types
 
 from uvt.cache import TranslationCache
-from uvt.live import LiveTranslator, is_probable_echo, put_latest
+from uvt.live import (
+    LiveTranslator,
+    capture_device_names,
+    is_probable_echo,
+    put_latest,
+)
 
 
 def test_live_initial_state(tmp_path) -> None:
@@ -43,3 +50,173 @@ def test_live_defaults_to_text_only(tmp_path) -> None:
     assert not live.speak
     assert live.chunk_seconds == 4.0
     assert live.capture_device is None
+
+
+def test_capture_device_lookup_leaves_soundcard_to_initialize_com(monkeypatch) -> None:
+    fake_soundcard = types.ModuleType("soundcard")
+    fake_soundcard.all_microphones = lambda **_kwargs: [
+        types.SimpleNamespace(name="Cable Output")
+    ]
+    monkeypatch.setitem(sys.modules, "soundcard", fake_soundcard)
+    monkeypatch.setattr(
+        "uvt.live.initialize_windows_com",
+        lambda: (_ for _ in ()).throw(AssertionError("unexpected COM init")),
+    )
+
+    assert capture_device_names() == ["Cable Output"]
+
+
+def test_capture_creates_wasapi_device_in_com_thread(monkeypatch, tmp_path) -> None:
+    released: list[bool] = []
+
+    class _Recorder:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def record(self, **_kwargs):
+            live._stop.set()
+            return object()
+
+    fake_soundcard = types.ModuleType("soundcard")
+    fake_soundcard.default_speaker = lambda: types.SimpleNamespace(name="speaker")
+    fake_soundcard.get_microphone = lambda *_args, **_kwargs: types.SimpleNamespace(
+        name="speaker", recorder=lambda **_kwargs: _Recorder()
+    )
+    monkeypatch.setitem(sys.modules, "soundcard", fake_soundcard)
+    live = LiveTranslator(
+        translator=object(),  # type: ignore[arg-type]
+        cache=TranslationCache(tmp_path / "cache.json"),
+    )
+    monkeypatch.setattr("uvt.live.initialize_windows_com", lambda: True)
+    monkeypatch.setattr(
+        "uvt.live.uninitialize_windows_com", lambda: released.append(True)
+    )
+
+    live._capture(16000)
+
+    assert released == [True]
+
+
+def test_live_falls_back_to_original_on_translate_error(monkeypatch) -> None:
+    captured: list[str] = []
+    statuses: list[str] = []
+    errors: list[Exception] = []
+
+    class _Translator:
+        model = "test"
+
+        def translate(self, _text: str, _source_language: str) -> str:
+            raise RuntimeError("fail")
+
+    class _Cache:
+        def get(self, *_args):
+            return None
+
+        def put(self, *_args) -> None:
+            return None
+
+    class _Segment:
+        text = "Hello"
+
+    class _WhisperModel:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def transcribe(self, *_args, **_kwargs):
+            return [_Segment()], None
+
+    fake_soundcard = types.ModuleType("soundcard")
+    fake_soundcard.default_speaker = lambda: types.SimpleNamespace(name="speaker")
+    fake_soundcard.get_microphone = lambda *_args, **_kwargs: types.SimpleNamespace(
+        name="speaker"
+    )
+    fake_soundcard.all_microphones = lambda *_args, **_kwargs: []
+    fake_whisper = types.ModuleType("faster_whisper")
+    fake_whisper.WhisperModel = _WhisperModel
+
+    monkeypatch.setitem(sys.modules, "soundcard", fake_soundcard)
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake_whisper)
+    monkeypatch.setattr("uvt.live.LiveTranslator._capture", lambda *_args: None)
+
+    live = LiveTranslator(
+        translator=_Translator(),  # type: ignore[arg-type]
+        cache=_Cache(),  # type: ignore[arg-type]
+        on_text=captured.append,
+        on_status=statuses.append,
+        on_error=errors.append,
+    )
+    from uvt.live import _END
+
+    import numpy as np
+
+    live._audio_queue.put(np.array([0.1, -0.1], dtype=np.float32))
+    live._audio_queue.put(_END)
+    live._run()
+
+    assert captured == ["Hello"]
+    assert any("Fallback originale" in item for item in statuses)
+    assert not errors
+
+
+def test_live_uses_translation_when_cache_write_fails(monkeypatch) -> None:
+    captured: list[str] = []
+    statuses: list[str] = []
+    errors: list[Exception] = []
+
+    class _Translator:
+        model = "test"
+
+        def translate(self, _text: str, _source_language: str) -> str:
+            return "Ciao"
+
+    class _Cache:
+        def get(self, *_args):
+            return None
+
+        def put(self, *_args) -> None:
+            raise OSError("read only")
+
+    class _Segment:
+        text = "Hello"
+
+    class _WhisperModel:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def transcribe(self, *_args, **_kwargs):
+            return [_Segment()], None
+
+    fake_soundcard = types.ModuleType("soundcard")
+    fake_soundcard.default_speaker = lambda: types.SimpleNamespace(name="speaker")
+    fake_soundcard.get_microphone = lambda *_args, **_kwargs: types.SimpleNamespace(
+        name="speaker"
+    )
+    fake_soundcard.all_microphones = lambda *_args, **_kwargs: []
+    fake_whisper = types.ModuleType("faster_whisper")
+    fake_whisper.WhisperModel = _WhisperModel
+
+    monkeypatch.setitem(sys.modules, "soundcard", fake_soundcard)
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake_whisper)
+    monkeypatch.setattr("uvt.live.LiveTranslator._capture", lambda *_args: None)
+
+    live = LiveTranslator(
+        translator=_Translator(),  # type: ignore[arg-type]
+        cache=_Cache(),  # type: ignore[arg-type]
+        on_text=captured.append,
+        on_status=statuses.append,
+        on_error=errors.append,
+    )
+    from uvt.live import _END
+
+    import numpy as np
+
+    live._audio_queue.put(np.array([0.1, -0.1], dtype=np.float32))
+    live._audio_queue.put(_END)
+    live._run()
+
+    assert captured == ["Ciao"]
+    assert any("Cache traduzione non aggiornata" in item for item in statuses)
+    assert not errors

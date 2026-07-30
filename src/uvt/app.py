@@ -42,10 +42,31 @@ def main(argv: list[str] | None = None) -> int:
                 delay = cue.start - (time.monotonic() - started)
                 if delay > 0:
                     time.sleep(delay)
-            translated = cache.get(args.model, args.source_language, cue.text)
+            try:
+                translated = cache.get(
+                    args.model, args.source_language, cue.text
+                )
+            except OSError:
+                translated = None
             if translated is None:
-                translated = translator.translate(cue.text, args.source_language)
-                cache.put(args.model, args.source_language, cue.text, translated)
+                translated = translator.translate_many(
+                    [cue.text], args.source_language
+                )[0]
+                if translator.last_failed_indices:
+                    print(
+                        "Avviso: segmento non tradotto; uso testo originale.",
+                        file=sys.stderr,
+                    )
+                else:
+                    try:
+                        cache.put(
+                            args.model,
+                            args.source_language,
+                            cue.text,
+                            translated,
+                        )
+                    except OSError:
+                        pass
             if args.show_text:
                 print(translated, flush=True)
             engine.say(translated)

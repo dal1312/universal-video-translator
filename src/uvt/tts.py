@@ -78,21 +78,24 @@ class KokoroSpeech:
         self._player = None
         self._prepared: dict[str, object] = {}
 
-    def _audio(self, text: str):
+    def _generate_audio(self, text: str, speed: float):
         import numpy as np
 
-        prepared = self._prepared.pop(text, None)
-        if prepared is not None:
-            return prepared
         chunks = [
             np.asarray(audio, dtype=np.float32)
             for _graphemes, _phonemes, audio in self.pipeline(
-                text, voice=self.voice, speed=self.speed
+                text, voice=self.voice, speed=speed
             )
         ]
         if not chunks:
             raise RuntimeError("Kokoro non ha generato audio.")
         return np.concatenate(chunks)
+
+    def _audio(self, text: str):
+        prepared = self._prepared.pop(text, None)
+        if prepared is not None:
+            return prepared
+        return self._generate_audio(text, self.speed)
 
     def prewarm(self, text: str) -> None:
         if text not in self._prepared:
@@ -117,6 +120,17 @@ class KokoroSpeech:
 
     def render(self, text: str):
         return self._audio(text), 24000
+
+    def render_to_duration(self, text: str, max_duration: float):
+        audio = self._audio(text)
+        if max_duration > 0 and len(audio) > round(max_duration * 24000):
+            required_speed = self.speed * len(audio) / (
+                max_duration * 24000
+            )
+            audio = self._generate_audio(
+                text, min(2.2, required_speed * 1.03)
+            )
+        return audio, 24000
 
     def stop(self) -> None:
         self._player = None

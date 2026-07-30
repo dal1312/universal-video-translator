@@ -99,7 +99,8 @@ def test_audio_crossing_chunk_boundary_is_preserved(
     assert np.all(player._initial[1][:half_second] == 1.0)
     player.stop()
 
-def test_close_cues_are_serialized_without_voice_overlap(
+
+def test_close_cues_are_fitted_without_delaying_next_voice(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(
@@ -119,11 +120,93 @@ def test_close_cues_are_serialized_without_voice_overlap(
     player.prepare()
 
     audio = np.concatenate(player._initial)
-    first_end = 2 * SAMPLE_RATE
+    second_start = round(1.5 * SAMPLE_RATE)
     gap = round(VOICE_GAP_SECONDS * SAMPLE_RATE)
     assert np.max(audio) == 1.0
-    assert np.all(audio[first_end : first_end + gap] == 0.0)
+    assert np.all(audio[second_start - gap : second_start] == 0.0)
     assert np.all(
-        audio[first_end + gap : first_end + gap + SAMPLE_RATE] == 1.0
+        audio[second_start : second_start + SAMPLE_RATE] == 1.0
     )
     player.stop()
+
+
+def test_missing_batch_translation_falls_back_to_original(tmp_path: Path) -> None:
+    cached: list[tuple[str, str, str, str]] = []
+
+    class PartialTranslator(Translator):
+        def translate_many(
+            self, texts: list[str], _language: str
+        ) -> list[str]:
+            return ["IT uno"]
+
+    class RecordingCache(Cache):
+        def put_many(self, translations) -> None:
+            cached.extend(translations)
+
+    player = ProgressiveDubPlayer(
+        media=tmp_path / "video.mp4",
+        cues=[],
+        preview=Preview(),  # type: ignore[arg-type]
+        translator=PartialTranslator(),  # type: ignore[arg-type]
+        cache=RecordingCache(),  # type: ignore[arg-type]
+    )
+
+    player._translate_cues(
+        [Cue(0.0, 1.0, "uno"), Cue(1.0, 2.0, "due")]
+    )
+
+    assert player._translations == {"uno": "IT uno", "due": "due"}
+    assert cached == [("test", "auto", "uno", "IT uno")]
+
+
+def test_progressive_continues_when_cache_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    statuses: list[str] = []
+
+    class BrokenCache(Cache):
+        def get(self, *_args):
+            raise OSError("locked")
+
+        def put_many(self, _translations) -> None:
+            raise OSError("locked")
+
+    player = ProgressiveDubPlayer(
+        media=tmp_path / "video.mp4",
+        cues=[],
+        preview=Preview(),  # type: ignore[arg-type]
+        translator=Translator(),  # type: ignore[arg-type]
+        cache=BrokenCache(),  # type: ignore[arg-type]
+        on_status=statuses.append,
+    )
+
+    player._translate_cues([Cue(0.0, 1.0, "uno")])
+
+    assert player._translations == {"uno": "IT uno"}
+    assert any("Cache traduzione non disponibile" in item for item in statuses)
+    assert any("Cache traduzione non aggiornata" in item for item in statuses)
+
+
+def test_progressive_reports_untranslated_segments(tmp_path: Path) -> None:
+    statuses: list[str] = []
+
+    class FailedTranslator(Translator):
+        last_failed_indices = (0,)
+
+        def translate_many(
+            self, texts: list[str], _language: str
+        ) -> list[str]:
+            return texts
+
+    player = ProgressiveDubPlayer(
+        media=tmp_path / "video.mp4",
+        cues=[],
+        preview=Preview(),  # type: ignore[arg-type]
+        translator=FailedTranslator(),  # type: ignore[arg-type]
+        cache=Cache(),  # type: ignore[arg-type]
+        on_status=statuses.append,
+    )
+
+    player._translate_cues([Cue(0.0, 1.0, "untranslated")])
+
+    assert any("1 segmenti non tradotti" in item for item in statuses)
