@@ -7,6 +7,7 @@ from uvt.live import (
     LiveTranslator,
     capture_device_names,
     is_probable_echo,
+    preferred_cable_output,
     put_latest,
 )
 
@@ -64,6 +65,13 @@ def test_capture_device_lookup_leaves_soundcard_to_initialize_com(monkeypatch) -
     )
 
     assert capture_device_names() == ["Cable Output"]
+
+
+def test_preferred_cable_output_uses_vb_cable_device() -> None:
+    assert preferred_cable_output(
+        ["Microphone", "CABLE Output (VB-Audio Virtual Cable)"]
+    ) == "CABLE Output (VB-Audio Virtual Cable)"
+    assert preferred_cable_output(["Microphone"]) is None
 
 
 def test_capture_creates_wasapi_device_in_com_thread(monkeypatch, tmp_path) -> None:

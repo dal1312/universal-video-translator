@@ -1,16 +1,34 @@
 from __future__ import annotations
 
+import os
+import sys
 import tkinter as tk
 import threading
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from .audio_routing import (
+    AudioRoutingError,
+    restore_firefox_default,
+    route_firefox_to_cable,
+)
+from .browser_protocol import (
+    BrowserProtocolError,
+    extension_directory,
+    parse_translate_uri,
+    register_protocol,
+)
 from .cache import TranslationCache
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
-from .live import LiveTranslator, capture_device_names
+from .live import (
+    LiveTranslator,
+    capture_device_names,
+    preferred_cable_output,
+)
 from .media_player import MediaPreview
 from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
@@ -33,7 +51,7 @@ class RunSettings:
 
 
 class TranslatorWindow(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, initial_url: str | None = None) -> None:
         super().__init__()
         self.title("Universal Video Translator | Modern UI")
         self.geometry("1240x780")
@@ -41,6 +59,7 @@ class TranslatorWindow(tk.Tk):
         self.player: SubtitlePlayer | None = None
         self.progressive: ProgressiveDubPlayer | None = None
         self.live: LiveTranslator | None = None
+        self._firefox_audio_routed = False
         self.preview = MediaPreview()
         self.prepared_media: Path | None = None
         self.preview_directory: tempfile.TemporaryDirectory | None = None
@@ -56,7 +75,7 @@ class TranslatorWindow(tk.Tk):
         self.speech_engine_var = tk.StringVar(value="kokoro")
         self.voice_var = tk.StringVar(value="Sara (Kokoro, donna)")
         self.show_text_var = tk.BooleanVar(value=True)
-        self.live_voice_var = tk.BooleanVar(value=False)
+        self.live_voice_var = tk.BooleanVar(value=True)
         self.capture_device_var = tk.StringVar(
             value="Audio di sistema (predefinito)"
         )
@@ -66,6 +85,8 @@ class TranslatorWindow(tk.Tk):
         self.advanced_visible = False
         self._configure_theme()
         self._build()
+        if initial_url:
+            self._open_browser_video(initial_url)
         threading.Thread(target=self._load_models, daemon=True).start()
         threading.Thread(
             target=self._load_capture_devices, daemon=True
@@ -98,13 +119,19 @@ class TranslatorWindow(tk.Tk):
             text="Traduzione, doppiaggio e sottotitoli in tempo reale sul tuo PC",
             style="Subtitle.TLabel",
         ).pack(anchor="w", pady=(2, 0))
+        ttk.Button(
+            header,
+            text="Collega browser",
+            command=self._connect_browser,
+            style="Ghost.TButton",
+        ).grid(row=0, column=1, padx=(12, 0))
         self.theme_button = ttk.Button(
             header,
             text="Tema chiaro",
             command=self._toggle_theme,
             style="Ghost.TButton",
         )
-        self.theme_button.grid(row=0, column=1, padx=(12, 0))
+        self.theme_button.grid(row=0, column=2, padx=(8, 0))
 
         body = ttk.Panedwindow(root, orient="horizontal")
         body.grid(row=1, column=0, sticky="nsew")
@@ -327,7 +354,10 @@ class TranslatorWindow(tk.Tk):
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
             overlay_tab,
-            text="Cattura l’audio di browser e applicazioni e mostra la traduzione sopra ogni finestra.",
+            text=(
+                "Rileva VB-Cable, configura Firefox e riproduce automaticamente "
+                "la voce italiana."
+            ),
             style="CardSubtitle.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(3, 14))
         ttk.Label(
@@ -360,6 +390,7 @@ class TranslatorWindow(tk.Tk):
             text="Avvia AI Overlay OS",
             command=self._toggle_live,
             style="Primary.TButton",
+            state="disabled",
         )
         self.live_button.pack(side="left", padx=(0, 8))
         self.overlay_button = ttk.Button(
@@ -452,6 +483,46 @@ class TranslatorWindow(tk.Tk):
         )
         if path:
             self.file_var.set(path)
+
+    def _focus_browser_url(self) -> None:
+        self.deiconify()
+        self.lift()
+        self.file_entry.focus_set()
+        self.file_entry.selection_range(0, "end")
+
+    def _open_browser_video(self, url: str) -> None:
+        self.file_var.set(url)
+        self.status_var.set(
+            "Collegamento ricevuto: download e apertura video in avvio..."
+        )
+        self.after_idle(self._start_browser_video)
+
+    def _start_browser_video(self) -> None:
+        self._focus_browser_url()
+        self._start()
+
+    def _connect_browser(self) -> None:
+        try:
+            register_protocol()
+            extension = extension_directory()
+            if not extension.is_dir():
+                raise BrowserProtocolError(
+                    "Cartella dell'estensione browser non trovata."
+                )
+            os.startfile(extension)
+        except (BrowserProtocolError, OSError) as error:
+            messagebox.showerror("Collegamento browser", str(error))
+            return
+        messagebox.showinfo(
+            "Collegamento browser",
+            "Protocollo UVT registrato per questo utente.\n\n"
+            "In Chrome o Edge apri la pagina delle estensioni, attiva la "
+            "modalità sviluppatore, scegli 'Carica estensione non pacchettizzata' "
+            "e seleziona la cartella appena aperta.\n\n"
+            "L'estensione legge soltanto l'URL della scheda attiva quando premi "
+            "il suo pulsante. Il video viene quindi scaricato, tradotto e aperto "
+            "automaticamente in UVT.",
+        )
 
     def _show_text_menu(self, event: tk.Event) -> None:
         self.file_entry.focus_set()
@@ -683,13 +754,21 @@ class TranslatorWindow(tk.Tk):
             return Path(value)
         if self.download_directory is None:
             self.download_directory = tempfile.TemporaryDirectory(prefix="uvt-url-")
-        self.after(0, self.status_var.set, "Download video…")
-        return download_video(
+        self.after(0, self.status_var.set, "Download YouTube: avvio…")
+        path, has_subtitles = download_video(
             value,
             self.download_directory.name,
             cookies_browser=cookies_browser,
             source_language=source_language,
+            on_progress=lambda text: self.after(0, self.status_var.set, text),
         )
+        if not has_subtitles:
+            self.after(
+                0,
+                self.status_var.set,
+                "Nessun sottotitolo utilizzabile: verrà usata la trascrizione locale.",
+            )
+        return path
 
     def _toggle_overlay(self) -> None:
         visible = self.overlay.toggle()
@@ -911,9 +990,11 @@ class TranslatorWindow(tk.Tk):
     def _toggle_live(self) -> None:
         if self.live and self.live.running:
             self.live.stop()
+            self._restore_firefox_audio()
             self.live_button.configure(text="Avvia AI Overlay OS")
             return
         settings = self._settings()
+        self._route_firefox_audio()
         self.overlay.show()
         self.overlay_button.configure(text="Nascondi overlay")
         self.live = LiveTranslator(
@@ -937,12 +1018,39 @@ class TranslatorWindow(tk.Tk):
             ),
             on_error=lambda error: self.after(0, self._show_error, error),
         )
-        self.live.start()
+        try:
+            self.live.start()
+        except Exception:
+            self._restore_firefox_audio()
+            raise
         self.live_button.configure(text="Stop Overlay OS")
+
+    def _route_firefox_audio(self) -> None:
+        if "cable output" not in self.capture_device_var.get().lower():
+            return
+        try:
+            route_firefox_to_cable()
+        except AudioRoutingError as error:
+            self.status_var.set(f"Overlay avviato; routing Firefox manuale: {error}")
+            return
+        self._firefox_audio_routed = True
+        self.status_var.set(
+            "Ingresso CABLE Output; Firefox su CABLE Input; voce su uscita Windows"
+        )
+
+    def _restore_firefox_audio(self) -> None:
+        if not self._firefox_audio_routed:
+            return
+        self._firefox_audio_routed = False
+        try:
+            restore_firefox_default()
+        except AudioRoutingError as error:
+            self.status_var.set(f"Ripristina Firefox manualmente: {error}")
 
     def _set_live_status(self, text: str) -> None:
         self.status_var.set(text)
         if text in {"Overlay OS interrotto", "Errore Overlay OS"}:
+            self._restore_firefox_audio()
             self.live_button.configure(text="Avvia AI Overlay OS")
 
     def _settings(self) -> RunSettings:
@@ -984,9 +1092,22 @@ class TranslatorWindow(tk.Tk):
             "Audio di sistema (predefinito)",
             *capture_device_names(),
         )
-        self.after(
-            0, self.capture_combo.configure, {"values": values}
-        )
+        self.after(0, self._apply_capture_devices, values)
+
+    def _apply_capture_devices(self, values: tuple[str, ...]) -> None:
+        self.capture_combo.configure(values=values)
+        cable_output = preferred_cable_output(values)
+        if cable_output:
+            self.capture_device_var.set(cable_output)
+            self.live_voice_var.set(True)
+            self.status_var.set(
+                "Overlay pronto: audio automatico tramite VB-Cable"
+            )
+        else:
+            self.status_var.set(
+                "VB-Cable non rilevato: disponibile Audio di sistema"
+            )
+        self.live_button.configure(state="normal")
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
@@ -1018,6 +1139,7 @@ class TranslatorWindow(tk.Tk):
         self.preview.stop()
         if self.live:
             self.live.stop()
+        self._restore_firefox_audio()
         if self.download_directory:
             self.download_directory.cleanup()
         if self.preview_directory:
@@ -1025,8 +1147,26 @@ class TranslatorWindow(tk.Tk):
         self.destroy()
 
 
-def main() -> int:
-    TranslatorWindow().mainloop()
+def main(argv: Sequence[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    initial_url = None
+    startup_error = None
+    if arguments:
+        try:
+            if len(arguments) != 1:
+                raise BrowserProtocolError("È consentito un solo collegamento UVT.")
+            initial_url = parse_translate_uri(arguments[0])
+        except BrowserProtocolError as error:
+            startup_error = error
+
+    window = TranslatorWindow(initial_url=initial_url)
+    if startup_error:
+        window.after_idle(
+            messagebox.showerror,
+            "Collegamento browser non valido",
+            str(startup_error),
+        )
+    window.mainloop()
     return 0
 
 

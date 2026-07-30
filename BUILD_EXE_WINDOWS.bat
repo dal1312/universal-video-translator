@@ -42,6 +42,9 @@ pyinstaller --noconfirm --clean --onedir --windowed ^
   --collect-all faster_whisper ^
   --collect-all ctranslate2 ^
   --collect-all yt_dlp ^
+  --collect-all langdetect ^
+  --add-data "browser_extension;browser_extension" ^
+  --add-data "third_party\SoundVolumeView;third_party\SoundVolumeView" ^
   universal_video_translator.py
 
 if errorlevel 1 (

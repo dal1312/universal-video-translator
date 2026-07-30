@@ -1,5 +1,16 @@
 # Changelog
 
+[Italiano](CHANGELOG.md) | [English](CHANGELOG.en.md)
+
+## 0.2.0 - 2026-07-30
+
+- Estensione opzionale Chrome/Edge Manifest V3 con il solo permesso `activeTab`.
+- Protocollo locale `uvt://` registrato in HKCU senza privilegi amministrativi.
+- Validazione rigorosa: sono accettati soltanto URL HTTP/HTTPS singoli.
+- Il click sull'estensione avvia automaticamente download, traduzione e player video con la sola voce italiana.
+- Pulsante **Collega browser** e cartella dell'estensione incluse nella build Windows.
+- Test di regressione per parsing, registro Windows e avvio GUI.
+
 ## 0.1.0 - 2026-07-28
 
 - GUI desktop Windows con tema scuro e menu contestuale.

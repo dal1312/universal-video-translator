@@ -1,8 +1,10 @@
 # Universal Video Translator
 
+[Italiano](README.md) | [English](README.en.md)
+
 Applicazione desktop Windows per tradurre video in italiano e riprodurre una voce sintetizzata sincronizzata con le battute originali. La pipeline usa sottotitoli esistenti quando disponibili e Faster-Whisper come fallback.
 
-> Stato: **v0.1.0 funzionante**. Supporta video locali, file SRT/VTT, URL YouTube, riproduzione progressiva, esportazione audio/video e modalità Live PC.
+> Stato: **v0.2.0 browser integration**. Supporta video locali, file SRT/VTT, URL web, riproduzione progressiva, esportazione audio/video e modalità Live PC.
 
 ## Funzioni
 
@@ -22,6 +24,7 @@ Applicazione desktop Windows per tradurre video in italiano e riprodurre una voc
 - testo tradotto, overlay desktop e modalità Live PC;
 - esportazione WAV/MP3 e creazione di un MP4 con traccia italiana;
 - cache locale delle traduzioni.
+- collegamento opzionale da Chrome/Edge tramite protocollo locale `uvt://`.
 
 ## Pipeline
 
@@ -85,6 +88,24 @@ ollama serve
 
 Per YouTube lascia normalmente la lingua su `auto`. Se il sito richiede autenticazione, seleziona il browser nel quale hai effettuato l’accesso.
 
+## Collegamento browser v0.2
+
+1. Nell'app premi **Collega browser**. Windows registra `uvt://` soltanto per l'utente corrente e apre la cartella dell'estensione.
+2. Apri `chrome://extensions` oppure `edge://extensions`.
+3. Attiva **Modalità sviluppatore**, scegli **Carica estensione non pacchettizzata** e seleziona la cartella aperta dall'app.
+4. Fissa l'estensione **Send to Universal Video Translator** alla barra.
+5. Su una pagina video premi l'estensione. UVT scarica il contenuto, avvia la traduzione e apre automaticamente il player con la sola voce italiana.
+
+L'estensione richiede esclusivamente `activeTab`: legge l'URL HTTP/HTTPS della scheda attiva soltanto al click. Non legge cookie, cronologia, contenuti delle pagine o altre schede e non usa servizi cloud.
+
+## Audio automatico AI Overlay OS
+
+All'avvio, UVT rileva e seleziona automaticamente `CABLE Output` come ingresso e abilita la voce italiana. Avviando l'Overlay, Firefox viene instradato su `CABLE Input`; Stop, errore e chiusura dell'app lo ripristinano sull'uscita Windows predefinita. Le cuffie o casse fisiche devono restare il dispositivo predefinito, così viene riprodotta soltanto la voce italiana.
+
+Puoi comunque scegliere manualmente `Audio di sistema (predefinito)` o disabilitare la voce italiana dopo il rilevamento dei dispositivi.
+
+Il routing usa il componente locale SoundVolumeView incluso intatto nella distribuzione. Se il componente non è disponibile, l'Overlay continua a funzionare e segnala che il routing deve essere eseguito manualmente.
+
 ## Build EXE Windows
 
 Dopo una verifica completata:
@@ -123,7 +144,8 @@ Traduzione, trascrizione e sintesi vocale vengono eseguite localmente. Le connes
 - il primo avvio di Kokoro richiede il download del modello;
 - YouTube può richiedere cookie validi e può modificare i propri sistemi di accesso;
 - velocità di preparazione e ritardo dipendono dalle prestazioni del PC;
-- la v0.1.0 è una distribuzione portatile, non un installer MSI/Setup.
+- la v0.2.0 è una distribuzione portatile, non un installer MSI/Setup;
+- dopo aver spostato la cartella portatile, premi nuovamente **Collega browser** per aggiornare il percorso registrato.
 
 ## Licenza
 

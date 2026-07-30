@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Send to Universal Video Translator",
+  "version": "0.2.0",
+  "description": "Send the active video page to the local Universal Video Translator application.",
+  "permissions": ["activeTab"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "Send to Universal Video Translator"
+  }
+}

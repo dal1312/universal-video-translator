@@ -4,6 +4,8 @@ from PyInstaller.utils.hooks import collect_all
 datas = []
 binaries = []
 hiddenimports = []
+datas += [('browser_extension', 'browser_extension')]
+datas += [('third_party/SoundVolumeView', 'third_party/SoundVolumeView')]
 tmp_ret = collect_all('pyttsx3')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('soundcard')

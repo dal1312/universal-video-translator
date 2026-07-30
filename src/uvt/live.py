@@ -5,7 +5,7 @@ import re
 import sys
 import threading
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
@@ -101,6 +101,13 @@ def capture_device_names() -> list[str]:
         )
     except Exception:
         return []
+
+
+def preferred_cable_output(devices: Iterable[str]) -> str | None:
+    return next(
+        (device for device in devices if "cable output" in device.casefold()),
+        None,
+    )
 
 
 class LiveTranslator:

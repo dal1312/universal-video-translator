@@ -141,12 +141,6 @@ class MediaPreview:
         if self.process.stdin is None:
             raise RuntimeError("Impossibile aprire lo stream del player.")
 
-        filter_parts = []
-        audio_map = "1:a:0"
-        if has_audio:
-            filter_parts = ["[0:a:0][1:a:0]amix=inputs=2:duration=longest:normalize=0[aout]"]
-            audio_map = "[aout]"
-
         ffmpeg_command = [
             ensure_ffmpeg(),
             "-v",
@@ -168,22 +162,14 @@ class MediaPreview:
         if has_video:
             ffmpeg_command.extend(["-map", "0:v:0"])
 
-        ffmpeg_command.extend(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k"])
-
-        if has_audio:
-            ffmpeg_command.extend([
-                "-filter_complex",
-                ";".join(filter_parts),
-                "-map",
-                audio_map,
-            ])
-        else:
-            ffmpeg_command.extend(["-map", "1:a:0"])
+        ffmpeg_command.extend(
+            ["-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k"]
+        )
+        if has_video:
+            ffmpeg_command.extend(["-af", "apad"])
 
         ffmpeg_command.extend(
             [
-                "-af",
-                "apad",
                 "-shortest",
                 "-max_interleave_delta",
                 "1000000",
