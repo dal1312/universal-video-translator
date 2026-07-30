@@ -57,22 +57,30 @@ def test_export_translates_in_batches(tmp_path: Path, monkeypatch) -> None:
     assert translator.batch_sizes == [12, 1]
 
 
-def test_export_falls_back_to_original_when_batch_shorter(tmp_path: Path, monkeypatch) -> None:
-    generated: list[str] = []
+def test_export_falls_back_for_missing_batch_items(
+    tmp_path: Path, monkeypatch
+) -> None:
+    saved: list[str] = []
+    cached: list[tuple[str, str, str, str]] = []
 
     class Translator:
         model = "test"
 
         def translate_many(
-            self,
-            texts: list[str],
-            _source_language: str,
+            self, _texts: list[str], _source_language: str
         ) -> list[str]:
-            return [f"IT {texts[0]}"]
+            return ["IT uno"]
+
+    class Cache:
+        def get(self, *_args):
+            return None
+
+        def put_many(self, translations) -> None:
+            cached.extend(translations)
 
     class Engine:
         def save(self, text: str, destination: str | Path) -> None:
-            generated.append(text)
+            saved.append(text)
             Path(destination).write_bytes(b"wav")
 
     monkeypatch.setattr(
@@ -84,13 +92,93 @@ def test_export_falls_back_to_original_when_batch_shorter(tmp_path: Path, monkey
     )
 
     export_italian_audio(
-        [
-            Cue(0.0, 1.0, "salve"),
-            Cue(1.0, 2.0, "mondo"),
-        ],
+        [Cue(0.0, 1.0, "uno"), Cue(1.0, 2.0, "due")],
+        tmp_path / "output.wav",
+        translator=Translator(),  # type: ignore[arg-type]
+        cache=Cache(),  # type: ignore[arg-type]
+    )
+
+    assert saved == ["IT uno", "due"]
+    assert cached == [("test", "auto", "uno", "IT uno")]
+
+
+def test_export_continues_when_cache_is_unavailable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    saved: list[str] = []
+
+    class Translator:
+        model = "test"
+
+        def translate_many(
+            self, texts: list[str], _source_language: str
+        ) -> list[str]:
+            return [f"IT {text}" for text in texts]
+
+    class Cache:
+        def get(self, *_args):
+            raise OSError("locked")
+
+        def put_many(self, _translations) -> None:
+            raise OSError("locked")
+
+    class Engine:
+        def save(self, text: str, destination: str | Path) -> None:
+            saved.append(text)
+            Path(destination).write_bytes(b"wav")
+
+    monkeypatch.setattr(
+        "uvt.export.create_speech_engine", lambda *_args: Engine()
+    )
+    monkeypatch.setattr("uvt.export.ensure_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        "uvt.export.subprocess.run", lambda *_args, **_kwargs: None
+    )
+
+    export_italian_audio(
+        [Cue(0.0, 1.0, "uno")],
+        tmp_path / "output.wav",
+        translator=Translator(),  # type: ignore[arg-type]
+        cache=Cache(),  # type: ignore[arg-type]
+    )
+
+    assert saved == ["IT uno"]
+
+
+def test_export_warns_about_untranslated_segments(
+    tmp_path: Path, monkeypatch
+) -> None:
+    warnings: list[str] = []
+
+    class Translator:
+        model = "test"
+        last_failed_indices = (0,)
+
+        def translate_many(
+            self, texts: list[str], _source_language: str
+        ) -> list[str]:
+            return texts
+
+    class Engine:
+        def save(self, _text: str, destination: str | Path) -> None:
+            Path(destination).write_bytes(b"wav")
+
+    monkeypatch.setattr(
+        "uvt.export.create_speech_engine", lambda *_args: Engine()
+    )
+    monkeypatch.setattr("uvt.export.ensure_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        "uvt.export.subprocess.run", lambda *_args, **_kwargs: None
+    )
+
+    export_italian_audio(
+        [Cue(0.0, 1.0, "untranslated")],
         tmp_path / "output.wav",
         translator=Translator(),  # type: ignore[arg-type]
         cache=TranslationCache(tmp_path / "cache.json"),
+        on_warning=warnings.append,
     )
 
-    assert generated == ["IT salve", "mondo"]
+    assert warnings == [
+        "1 segmenti non sono stati tradotti e rimangono nella lingua originale."
+    ]

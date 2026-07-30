@@ -23,6 +23,7 @@ CHUNK_SECONDS = 15
 INITIAL_BUFFER_SECONDS = 30
 TRANSLATION_BATCH_SIZE = 12
 VOICE_GAP_SECONDS = 0.08
+MIN_VOICE_SLOT_SECONDS = 0.25
 _END = object()
 
 
@@ -221,9 +222,13 @@ class ProgressiveDubPlayer:
         for cue in cues:
             if cue.text in self._translations or cue.text in seen:
                 continue
-            translated = self.cache.get(
-                self.translator.model, self.source_language, cue.text
-            )
+            try:
+                translated = self.cache.get(
+                    self.translator.model, self.source_language, cue.text
+                )
+            except Exception as exc:
+                translated = None
+                self.on_status(f"Cache traduzione non disponibile: {exc!s}")
             if translated is not None:
                 self._translations[cue.text] = translated
             else:
@@ -236,29 +241,57 @@ class ProgressiveDubPlayer:
                 texts, self.source_language
             )
             if len(translations) < len(texts):
-                fallback = [
-                    text for text in texts[len(translations) :]
-                ]
-                translations.extend(fallback)
+                translations.extend(texts[len(translations) :])
             elif len(translations) > len(texts):
                 translations = translations[: len(texts)]
             self._translations.update(zip(texts, translations))
-            self.cache.put_many(
-                [
-                    (
-                        self.translator.model,
-                        self.source_language,
-                        text,
-                        translated,
-                    )
-                    for text, translated in zip(texts, translations)
-                ]
+            reported_failures = getattr(
+                self.translator, "last_failed_indices", None
             )
+            failed = (
+                set(reported_failures)
+                if reported_failures is not None
+                else {
+                    index
+                    for index, (text, translated) in enumerate(
+                        zip(texts, translations)
+                    )
+                    if translated == text
+                }
+            )
+            if failed:
+                self.on_status(
+                    f"{len(failed)} segmenti non tradotti; uso testo originale"
+                )
+            cacheable = [
+                (text, translated)
+                for text, translated in zip(texts, translations)
+                if translated != text
+            ]
+            try:
+                self.cache.put_many(
+                    [
+                        (
+                            self.translator.model,
+                            self.source_language,
+                            text,
+                            translated,
+                        )
+                        for text, translated in cacheable
+                    ]
+                )
+            except Exception as exc:
+                self.on_status(f"Cache traduzione non aggiornata: {exc!s}")
 
-    def _render(self, text: str, index: int):
+    def _render(self, text: str, index: int, max_duration: float):
         import numpy as np
 
-        if hasattr(self._engine, "render"):
+        if hasattr(self._engine, "render_to_duration"):
+            audio, samplerate = self._engine.render_to_duration(
+                text, max_duration
+            )
+            samples = np.asarray(audio, dtype=np.float32)
+        elif hasattr(self._engine, "render"):
             audio, samplerate = self._engine.render(text)
             samples = np.asarray(audio, dtype=np.float32)
         else:
@@ -278,7 +311,19 @@ class ProgressiveDubPlayer:
             samples = np.interp(
                 positions, np.arange(len(samples)), samples
             ).astype(np.float32)
+        maximum_samples = max(1, round(max_duration * SAMPLE_RATE))
+        if len(samples) > maximum_samples:
+            positions = np.linspace(0, len(samples) - 1, maximum_samples)
+            samples = np.interp(
+                positions, np.arange(len(samples)), samples
+            ).astype(np.float32)
         return samples
+
+    def _voice_slot(self, index: int, cue: Cue) -> float:
+        end = cue.end
+        if index + 1 < len(self.cues):
+            end = min(end, self.cues[index + 1].start - VOICE_GAP_SECONDS)
+        return max(MIN_VOICE_SLOT_SECONDS, end - cue.start)
 
     def _build_next_chunk(self):
         import numpy as np
@@ -303,7 +348,11 @@ class ProgressiveDubPlayer:
         self._translate_cues([cue for _index, cue in selected])
 
         for index, cue in selected:
-            audio = self._render(self._translations[cue.text], index)
+            audio = self._render(
+                self._translations[cue.text],
+                index,
+                self._voice_slot(index, cue),
+            )
             cue_start_sample = max(0, round(cue.start * SAMPLE_RATE))
             gap_samples = (
                 round(VOICE_GAP_SECONDS * SAMPLE_RATE)

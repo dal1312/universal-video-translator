@@ -65,21 +65,58 @@ class SubtitlePlayer:
             translated = self.cache.get(
                 self.translator.model, self.source_language, text
             )
-            if translated is None:
-                translated = self.translator.translate(text, self.source_language)
-                self.cache.put(
-                    self.translator.model,
-                    self.source_language,
-                    text,
-                    translated,
-            )
+        except Exception as exc:
+            translated = None
+            if position is not None:
+                self.on_status(
+                    f"Cache traduzione non disponibile per battuta {position}: {exc!s}"
+                )
+        if translated is not None:
             return translated
+
+        try:
+            if hasattr(self.translator, "translate_many"):
+                translated = self.translator.translate_many(
+                    [text], self.source_language
+                )[0]
+            else:
+                translated = self.translator.translate(
+                    text, self.source_language
+                )
         except Exception as exc:
             if position is not None:
                 self.on_status(
                     f"Fallback originale per battuta {position}: {exc!s}"
                 )
             return text
+        reported_failures = getattr(
+            self.translator, "last_failed_indices", None
+        )
+        failed = (
+            bool(reported_failures)
+            if reported_failures is not None
+            else translated == text
+        )
+        if failed:
+            if position is not None:
+                self.on_status(
+                    f"Battuta {position} non tradotta; uso testo originale"
+                )
+            return text
+
+        try:
+            self.cache.put(
+                self.translator.model,
+                self.source_language,
+                text,
+                translated,
+            )
+        except Exception as exc:
+            if position is not None:
+                self.on_status(
+                    f"Cache traduzione non aggiornata per battuta {position}: {exc!s}"
+                )
+        return translated
 
     def prepare(self) -> None:
         if self._engine is None:
@@ -92,8 +129,8 @@ class SubtitlePlayer:
         for position, cue in enumerate(self.cues, start=1):
             if self._stop.is_set():
                 return
-            translated = self._translate(cue.text, position)
             self.on_status(f"Pretraduzione {position}/{total}")
+            translated = self._translate(cue.text, position)
             if first_translation is None:
                 first_translation = translated
         if first_translation and hasattr(self._engine, "prewarm"):
@@ -146,6 +183,7 @@ class SubtitlePlayer:
                     break
                 if self._stop.is_set():
                     break
+
                 translated = self._translate(cue.text, position)
                 self.on_text(translated)
                 self.on_status(f"Battuta {position}/{len(self.cues)}")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import wave
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,6 +17,35 @@ if TYPE_CHECKING:
 
 
 TRANSLATION_BATCH_SIZE = 12
+VOICE_GAP_SECONDS = 0.08
+MIN_VOICE_SLOT_SECONDS = 0.25
+
+
+def _audio_duration(path: Path) -> float | None:
+    try:
+        with wave.open(str(path), "rb") as audio:
+            rate = audio.getframerate()
+            return audio.getnframes() / rate if rate else None
+    except (OSError, EOFError, wave.Error):
+        return None
+
+
+def _voice_slot(cues: list[Cue], index: int) -> float:
+    cue = cues[index]
+    end = cue.end
+    if index + 1 < len(cues):
+        end = min(end, cues[index + 1].start - VOICE_GAP_SECONDS)
+    return max(MIN_VOICE_SLOT_SECONDS, end - cue.start)
+
+
+def _atempo_filters(speed: float) -> list[str]:
+    filters: list[str] = []
+    while speed > 2.0:
+        filters.append("atempo=2")
+        speed /= 2.0
+    if speed > 1.001:
+        filters.append(f"atempo={speed:.6f}")
+    return filters
 
 
 def export_italian_audio(
@@ -28,6 +58,7 @@ def export_italian_audio(
     speech_engine: str = "windows",
     voice: str = "default",
     on_progress: Callable[[int, int], None] | None = None,
+    on_warning: Callable[[str], None] | None = None,
 ) -> Path:
     if not cues:
         raise ValueError("Nessuna battuta da esportare.")
@@ -35,6 +66,7 @@ def export_italian_audio(
     output = Path(destination)
     output.parent.mkdir(parents=True, exist_ok=True)
     progress = on_progress or (lambda _current, _total: None)
+    warning = on_warning or (lambda _message: None)
 
     with tempfile.TemporaryDirectory(prefix="uvt-export-") as directory:
         temp = Path(directory)
@@ -43,11 +75,17 @@ def export_italian_audio(
         translated_by_text: dict[str, str] = {}
         missing: list[str] = []
         missing_seen: set[str] = set()
+        failed_segments = 0
 
         for cue in cues:
             if cue.text in translated_by_text:
                 continue
-            translated = cache.get(translator.model, source_language, cue.text)
+            try:
+                translated = cache.get(
+                    translator.model, source_language, cue.text
+                )
+            except Exception:
+                translated = None
             if translated is not None:
                 translated_by_text[cue.text] = translated
             elif cue.text not in missing_seen:
@@ -58,23 +96,44 @@ def export_italian_audio(
             texts = missing[offset : offset + TRANSLATION_BATCH_SIZE]
             translations = translator.translate_many(texts, source_language)
             if len(translations) < len(texts):
-                translations = translations + [
-                    text for text in texts[len(translations) :]
-                ]
+                translations.extend(texts[len(translations) :])
             elif len(translations) > len(texts):
                 translations = translations[: len(texts)]
             translated_by_text.update(zip(texts, translations))
-            cache.put_many(
-                [
-                    (
-                        translator.model,
-                        source_language,
-                        text,
-                        translated,
-                    )
-                    for text, translated in zip(texts, translations)
-                ]
+            reported_failures = getattr(
+                translator, "last_failed_indices", None
             )
+            failed = (
+                set(reported_failures)
+                if reported_failures is not None
+                else {
+                    index
+                    for index, (text, translated) in enumerate(
+                        zip(texts, translations)
+                    )
+                    if translated == text
+                }
+            )
+            failed_segments += len(failed)
+            cacheable = [
+                (text, translated)
+                for text, translated in zip(texts, translations)
+                if translated != text
+            ]
+            try:
+                cache.put_many(
+                    [
+                        (
+                            translator.model,
+                            source_language,
+                            text,
+                            translated,
+                        )
+                        for text, translated in cacheable
+                    ]
+                )
+            except Exception:
+                pass
 
         for index, cue in enumerate(cues):
             translated = translated_by_text[cue.text]
@@ -87,14 +146,32 @@ def export_italian_audio(
             segments.append(segment)
             progress(index + 1, len(cues))
 
+        if failed_segments:
+            warning(
+                f"{failed_segments} segmenti non sono stati tradotti e "
+                "rimangono nella lingua originale."
+            )
+
         command = [ensure_ffmpeg(), "-v", "error", "-y"]
         for segment in segments:
             command.extend(["-i", str(segment)])
 
-        filters = [
-            f"[{index}:a]adelay={max(0, round(cue.start * 1000))}:all=1[a{index}]"
-            for index, cue in enumerate(cues)
-        ]
+        filters: list[str] = []
+        for index, (cue, segment) in enumerate(zip(cues, segments)):
+            slot = _voice_slot(cues, index)
+            duration = _audio_duration(segment)
+            audio_filters: list[str] = []
+            if duration is not None and duration > slot:
+                audio_filters.extend(_atempo_filters(duration / slot))
+            audio_filters.extend(
+                [
+                    f"atrim=duration={slot:.6f}",
+                    f"adelay={max(0, round(cue.start * 1000))}:all=1",
+                ]
+            )
+            filters.append(
+                f"[{index}:a]{','.join(audio_filters)}[a{index}]"
+            )
         mixed = "".join(f"[a{index}]" for index in range(len(cues)))
         filters.append(
             f"{mixed}amix=inputs={len(cues)}:duration=longest:normalize=0[out]"
