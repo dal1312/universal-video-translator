@@ -43,7 +43,11 @@ def subtitle_language_candidates(
         for language in dict.fromkeys(preferred):
             if language in available:
                 return [language]
-        return [base]
+
+        for language in available:
+            if language == base or language.startswith(f"{base}-"):
+                return [language]
+        return []
 
     original_tracks = [
         language for language in available if language.endswith("-orig")
