@@ -1,4 +1,5 @@
 from pathlib import Path
+import threading
 
 import numpy as np
 
@@ -210,3 +211,46 @@ def test_progressive_reports_untranslated_segments(tmp_path: Path) -> None:
     player._translate_cues([Cue(0.0, 1.0, "untranslated")])
 
     assert any("1 segmenti non tradotti" in item for item in statuses)
+
+
+def test_progressive_stop_waits_for_workers(tmp_path: Path) -> None:
+    player = ProgressiveDubPlayer(
+        media=tmp_path / "video.mp4",
+        cues=[],
+        preview=Preview(),  # type: ignore[arg-type]
+        translator=Translator(),  # type: ignore[arg-type]
+        cache=Cache(),  # type: ignore[arg-type]
+    )
+    threads = [
+        threading.Thread(target=player._stop.wait)
+        for _index in range(4)
+    ]
+    (
+        player._producer,
+        player._writer,
+        player._text_thread,
+        player._monitor,
+    ) = threads
+    for thread in threads:
+        thread.start()
+
+    assert player.stop(timeout=1.0)
+    assert all(not thread.is_alive() for thread in threads)
+    assert player._producer is None
+    assert player._writer is None
+
+
+def test_progressive_stop_unblocks_empty_audio_queue(tmp_path: Path) -> None:
+    player = ProgressiveDubPlayer(
+        media=tmp_path / "video.mp4",
+        cues=[],
+        preview=Preview(),  # type: ignore[arg-type]
+        translator=Translator(),  # type: ignore[arg-type]
+        cache=Cache(),  # type: ignore[arg-type]
+    )
+    writer = threading.Thread(target=player._write_audio)
+    player._writer = writer
+    writer.start()
+
+    assert player.stop(timeout=1.0)
+    assert not writer.is_alive()

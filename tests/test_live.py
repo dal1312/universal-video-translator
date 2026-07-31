@@ -1,5 +1,6 @@
 import queue
 import sys
+import threading
 import types
 
 from uvt.cache import TranslationCache
@@ -19,6 +20,26 @@ def test_live_initial_state(tmp_path) -> None:
     )
     assert not live.running
     live.stop()
+
+
+def test_live_stop_waits_for_worker(tmp_path) -> None:
+    live = LiveTranslator(
+        translator=object(),  # type: ignore[arg-type]
+        cache=TranslationCache(tmp_path / "cache.json"),
+    )
+    started = threading.Event()
+
+    def run() -> None:
+        started.set()
+        live._stop.wait()
+
+    live._run = run  # type: ignore[method-assign]
+    live.start()
+    assert started.wait(1.0)
+
+    assert live.stop(timeout=1.0)
+    assert not live.running
+    assert live._thread is None
 
 
 def test_live_queue_discards_oldest_audio() -> None:

@@ -147,7 +147,7 @@ class SubtitlePlayer:
             self.on_status("In pausa")
         return self._pause.is_set()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 2.0) -> bool:
         self._stop.set()
         self._pause.clear()
         if self._engine is not None:
@@ -155,6 +155,15 @@ class SubtitlePlayer:
                 self._engine.stop()
             except RuntimeError:
                 pass
+        thread = self._thread
+        if thread is None:
+            return True
+        if thread is not threading.current_thread():
+            thread.join(max(0.0, timeout))
+        stopped = not thread.is_alive()
+        if stopped:
+            self._thread = None
+        return stopped
 
     def _wait_until(self, deadline: float) -> bool:
         while not self._stop.is_set():

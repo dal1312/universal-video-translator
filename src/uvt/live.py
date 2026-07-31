@@ -4,6 +4,7 @@ import queue
 import re
 import sys
 import threading
+import time
 from collections import deque
 from collections.abc import Callable, Iterable
 from difflib import SequenceMatcher
@@ -163,7 +164,7 @@ class LiveTranslator:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float | None = None) -> bool:
         self._stop.set()
         put_latest(self._audio_queue, _END)
         put_latest(self._speech_queue, _END)
@@ -172,6 +173,27 @@ class LiveTranslator:
                 self._engine.stop()
             except RuntimeError:
                 pass
+        deadline = None
+        if timeout is not None:
+            deadline = time.monotonic() + max(0.0, timeout)
+        elif self._thread is not None:
+            deadline = time.monotonic() + self.chunk_seconds + 1.0
+        current = threading.current_thread()
+        threads = (self._capture_thread, self._speech_thread, self._thread)
+        for thread in threads:
+            if thread is None or thread is current:
+                continue
+            remaining = max(0.0, deadline - time.monotonic()) if deadline else None
+            thread.join(remaining)
+        stopped = all(
+            thread is None or thread is current or not thread.is_alive()
+            for thread in threads
+        )
+        if stopped:
+            self._capture_thread = None
+            self._speech_thread = None
+            self._thread = None
+        return stopped
 
     def _capture(self, sample_rate: int) -> None:
         com_initialized = False

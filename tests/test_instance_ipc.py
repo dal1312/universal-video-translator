@@ -6,7 +6,6 @@ from uvt.instance_ipc import SingleInstanceBroker
 
 
 def test_second_broker_forwards_overlay_to_single_owner(tmp_path, monkeypatch) -> None:
-    claims = tmp_path / "claims"
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     name = f"Local\\UVT-test-{uuid4()}"
     owner = SingleInstanceBroker(tmp_path / "ipc", mutex_name=name)

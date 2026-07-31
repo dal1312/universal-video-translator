@@ -138,18 +138,51 @@ class ProgressiveDubPlayer:
             self.on_status("In pausa")
         return self._pause.is_set()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 3.0) -> bool:
         self._stop.set()
         self._pause.clear()
+        try:
+            self._queue.put_nowait(_END)
+        except queue.Full:
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._queue.put_nowait(_END)
+            except queue.Full:
+                pass
         self.preview.stop()
         if self._engine is not None:
             try:
                 self._engine.stop()
             except RuntimeError:
                 pass
-        if self._temporary is not None:
+        deadline = time.monotonic() + max(0.0, timeout)
+        current = threading.current_thread()
+        threads = (
+            self._producer,
+            self._writer,
+            self._text_thread,
+            self._monitor,
+        )
+        for thread in threads:
+            if thread is None or thread is current:
+                continue
+            thread.join(max(0.0, deadline - time.monotonic()))
+        stopped = all(
+            thread is None or thread is current or not thread.is_alive()
+            for thread in threads
+        )
+        if stopped and self._temporary is not None:
             self._temporary.cleanup()
             self._temporary = None
+        if stopped:
+            self._producer = None
+            self._writer = None
+            self._text_thread = None
+            self._monitor = None
+        return stopped
 
     def _put(self, item: object) -> bool:
         while not self._stop.is_set():

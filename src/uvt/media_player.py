@@ -219,16 +219,34 @@ class MediaPreview:
         process = self.process
         return process.wait() if process else 0
 
-    def stop(self) -> None:
+    @staticmethod
+    def _terminate(process: subprocess.Popen, timeout: float) -> bool:
+        if process.poll() is not None:
+            return True
+        try:
+            process.terminate()
+            process.wait(timeout=max(0.0, timeout))
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+                process.wait(timeout=max(0.0, timeout))
+            except (subprocess.TimeoutExpired, AttributeError, OSError):
+                return False
+        except (AttributeError, OSError):
+            return process.poll() is not None
+        return process.poll() is not None
+
+    def stop(self, timeout: float = 2.0) -> bool:
+        stopped = True
         if self.pipeline:
             if self.pipeline.stdin:
                 try:
                     self.pipeline.stdin.close()
                 except OSError:
                     pass
-            if self.pipeline.poll() is None:
-                self.pipeline.terminate()
+            stopped = self._terminate(self.pipeline, timeout) and stopped
         self.pipeline = None
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
+        if self.process:
+            stopped = self._terminate(self.process, timeout) and stopped
         self.process = None
+        return stopped

@@ -4,10 +4,8 @@ import os
 import sys
 import tkinter as tk
 import threading
-import tempfile
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -25,8 +23,6 @@ from .browser_protocol import (
 )
 from .cache import TranslationCache
 from .diagnostics import log_exception, logger
-from .downloader import download_video, is_web_url
-from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import (
     LiveTranslator,
     capture_device_names,
@@ -39,20 +35,8 @@ from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
 from .settings import AppSettings, SettingsStore
-from .transcription import load_cues
 from .tts import KOKORO_VOICES, windows_voice_names
-
-
-@dataclass(frozen=True, slots=True)
-class RunSettings:
-    source: str
-    ollama_model: str
-    whisper_model: str
-    language: str
-    rate: int
-    speech_engine: str
-    voice: str
-    cookies_browser: str | None
+from .workflow import RunSettings, TranslationWorkflow
 
 
 class TranslatorWindow(tk.Tk):
@@ -87,12 +71,16 @@ class TranslatorWindow(tk.Tk):
         self._instance_poll_job: str | None = None
         self._settings_save_job: str | None = None
         self._closing = False
+        self._workers: set[threading.Thread] = set()
+        self._workers_lock = threading.Lock()
         self._capture_devices_loaded = False
         self.preview = MediaPreview()
-        self.prepared_media: Path | None = None
-        self.preview_directory: tempfile.TemporaryDirectory | None = None
-        self.preview_has_italian_audio = False
-        self.download_directory: tempfile.TemporaryDirectory | None = None
+        self.workflow = TranslationWorkflow(
+            self.preview,
+            on_text=lambda text: self._call_in_ui(self._show_text, text),
+            on_status=lambda text: self._call_in_ui(self._set_status, text),
+            on_error=lambda error: self._call_in_ui(self._show_error, error),
+        )
         self.overlay = SubtitleOverlay(self)
         self.overlay.apply_preferences(
             geometry=saved.overlay_geometry,
@@ -125,11 +113,51 @@ class TranslatorWindow(tk.Tk):
             self._schedule_instance_poll()
         if auto_start_overlay:
             self.after_idle(self._show_browser_overlay)
-        threading.Thread(target=self._load_models, daemon=True).start()
-        threading.Thread(
-            target=self._load_capture_devices, daemon=True
-        ).start()
+        self._start_worker(self._load_models, name="uvt-model-discovery")
+        self._start_worker(
+            self._load_capture_devices,
+            name="uvt-audio-discovery",
+        )
         self.protocol("WM_DELETE_WINDOW", self._close)
+
+    def _start_worker(
+        self,
+        target,
+        *args,
+        name: str,
+    ) -> threading.Thread:
+        def run() -> None:
+            try:
+                target(*args)
+            finally:
+                with self._workers_lock:
+                    self._workers.discard(thread)
+
+        thread = threading.Thread(target=run, name=name, daemon=True)
+        with self._workers_lock:
+            self._workers.add(thread)
+        thread.start()
+        return thread
+
+    def _join_workers(self, timeout: float = 2.0) -> bool:
+        deadline = time.monotonic() + max(0.0, timeout)
+        current = threading.current_thread()
+        with self._workers_lock:
+            workers = tuple(self._workers)
+        for worker in workers:
+            if worker is current:
+                continue
+            worker.join(max(0.0, deadline - time.monotonic()))
+        return not any(worker.is_alive() for worker in workers if worker is not current)
+
+    def _call_in_ui(self, callback, *args) -> None:
+        if self._closing:
+            return
+        try:
+            self.after(0, callback, *args)
+        except (RuntimeError, tk.TclError):
+            if not self._closing:
+                raise
 
     def report_callback_exception(
         self,
@@ -715,61 +743,29 @@ class TranslatorWindow(tk.Tk):
     def _start(self) -> None:
         self.start_button.configure(state="disabled")
         self.status_var.set("Preparazione/trascrizione…")
-        threading.Thread(
-            target=self._prepare, args=(self._settings(),), daemon=True
-        ).start()
+        self._start_worker(
+            self._prepare,
+            self._settings(),
+            name="uvt-prepare",
+        )
 
     def _prepare(self, settings: RunSettings) -> None:
         try:
-            path = self._resolve_input(
-                settings.source, settings.cookies_browser, settings.language
-            )
-            is_media = path.suffix.lower() not in {".srt", ".vtt"}
-            cues = load_cues(path, whisper_model=settings.whisper_model)
-            if not cues:
-                raise ValueError("Nessuna battuta rilevata.")
-            if is_media:
-                if self.progressive:
-                    self.progressive.stop()
-                self.progressive = ProgressiveDubPlayer(
-                    media=path,
-                    cues=cues,
-                    preview=self.preview,
-                    translator=OllamaTranslator(model=settings.ollama_model),
-                    cache=TranslationCache(),
-                    source_language=settings.language,
-                    rate=settings.rate,
-                    speech_engine=settings.speech_engine,
-                    voice=settings.voice,
-                    on_text=lambda text: self.after(0, self._show_text, text),
-                    on_status=lambda text: self.after(0, self._set_status, text),
-                    on_error=lambda error: self.after(0, self._show_error, error),
-                )
-                self.progressive.prepare()
-                self.player = None
-                self.after(0, self._begin_playback)
+            prepared = self.workflow.prepare(settings)
+            if self._closing:
+                if prepared.progressive:
+                    prepared.progressive.stop()
+                if prepared.player:
+                    prepared.player.stop()
                 return
-
-            self.progressive = None
-            self.prepared_media = None
-            self.preview_has_italian_audio = False
-            self.player = SubtitlePlayer(
-                cues=cues,
-                translator=OllamaTranslator(model=settings.ollama_model),
-                cache=TranslationCache(),
-                source_language=settings.language,
-                rate=settings.rate,
-                speech_engine=settings.speech_engine,
-                voice=settings.voice,
-                on_text=lambda text: self.after(0, self._show_text, text),
-                on_status=lambda text: self.after(0, self._set_status, text),
-                on_error=lambda error: self.after(0, self._show_error, error),
-            )
-            self.player.prepare()
-            self.after(0, self._begin_playback)
+            self.progressive = prepared.progressive
+            self.player = prepared.player
+            self._call_in_ui(self._begin_playback)
         except Exception as exc:
-            self.after(0, self._show_error, exc)
-            self.after(0, self._reset_controls)
+            if self._closing:
+                return
+            self._call_in_ui(self._show_error, exc)
+            self._call_in_ui(self._reset_controls)
 
     def _begin_playback(self) -> None:
         self.pause_button.configure(state="normal")
@@ -782,16 +778,6 @@ class TranslatorWindow(tk.Tk):
                 self._reset_controls()
             return
         if self.player:
-            if self.prepared_media:
-                try:
-                    self.preview.open(
-                        self.prepared_media,
-                        mute_audio=not self.preview_has_italian_audio,
-                    )
-                    self.after(700, self.player.start)
-                    return
-                except Exception as exc:
-                    self._show_error(exc)
             self.player.start()
 
     def _pause(self) -> None:
@@ -822,44 +808,32 @@ class TranslatorWindow(tk.Tk):
             return
         self.export_button.configure(state="disabled")
         self.status_var.set("Preparazione esportazione…")
-        threading.Thread(
-            target=self._run_export,
-            args=(destination, self._settings()),
-            daemon=True,
-        ).start()
+        self._start_worker(
+            self._run_export,
+            destination,
+            self._settings(),
+            name="uvt-export-audio",
+        )
 
     def _run_export(self, destination: str, settings: RunSettings) -> None:
         try:
-            cues = load_cues(
-                self._resolve_input(
-                    settings.source, settings.cookies_browser, settings.language
-                ),
-                whisper_model=settings.whisper_model,
-            )
-            output = export_italian_audio(
-                cues,
+            output = self.workflow.export_audio(
                 destination,
-                translator=OllamaTranslator(model=settings.ollama_model),
-                cache=TranslationCache(),
-                source_language=settings.language,
-                rate=settings.rate,
-                speech_engine=settings.speech_engine,
-                voice=settings.voice,
-                on_progress=lambda current, total: self.after(
-                    0, self.status_var.set, f"Esportazione {current}/{total}"
+                settings,
+                on_progress=lambda current, total: self._call_in_ui(
+                    self.status_var.set, f"Esportazione {current}/{total}"
                 ),
-                on_warning=lambda message: self.after(
-                    0,
+                on_warning=lambda message: self._call_in_ui(
                     messagebox.showwarning,
                     "Traduzione incompleta",
                     message,
                 ),
             )
-            self.after(0, self._export_complete, output)
+            self._call_in_ui(self._export_complete, output)
         except Exception as exc:
-            self.after(0, self._show_error, exc)
+            self._call_in_ui(self._show_error, exc)
         finally:
-            self.after(0, self.export_button.configure, {"state": "normal"})
+            self._call_in_ui(self.export_button.configure, {"state": "normal"})
 
     def _export_complete(self, output: Path) -> None:
         self.status_var.set("Esportazione completata")
@@ -879,77 +853,38 @@ class TranslatorWindow(tk.Tk):
         if not destination:
             return
         self.video_button.configure(state="disabled")
-        threading.Thread(
-            target=self._run_video_export,
-            args=(Path(destination), settings),
-            daemon=True,
-        ).start()
+        self._start_worker(
+            self._run_video_export,
+            Path(destination),
+            settings,
+            name="uvt-export-video",
+        )
 
     def _run_video_export(
         self, destination: Path, settings: RunSettings
     ) -> None:
         try:
-            source = self._resolve_input(
-                settings.source, settings.cookies_browser, settings.language
+            output = self.workflow.export_video(
+                destination,
+                settings,
+                on_progress=lambda current, total: self._call_in_ui(
+                    self.status_var.set, f"Creazione video {current}/{total}"
+                ),
+                on_warning=lambda message: self._call_in_ui(
+                    messagebox.showwarning,
+                    "Traduzione incompleta",
+                    message,
+                ),
             )
-            with tempfile.TemporaryDirectory(prefix="uvt-video-") as directory:
-                audio = Path(directory) / "italiano.wav"
-                cues = load_cues(source, whisper_model=settings.whisper_model)
-                export_italian_audio(
-                    cues,
-                    audio,
-                    translator=OllamaTranslator(model=settings.ollama_model),
-                    cache=TranslationCache(),
-                    source_language=settings.language,
-                    rate=settings.rate,
-                    speech_engine=settings.speech_engine,
-                    voice=settings.voice,
-                    on_progress=lambda current, total: self.after(
-                        0, self.status_var.set, f"Creazione video {current}/{total}"
-                    ),
-                    on_warning=lambda message: self.after(
-                        0,
-                        messagebox.showwarning,
-                        "Traduzione incompleta",
-                        message,
-                    ),
-                )
-                mux_video_with_italian_audio(source, audio, destination)
-            self.after(0, self._video_complete, destination)
+            self._call_in_ui(self._video_complete, output)
         except Exception as exc:
-            self.after(0, self._show_error, exc)
+            self._call_in_ui(self._show_error, exc)
         finally:
-            self.after(0, self.video_button.configure, {"state": "normal"})
+            self._call_in_ui(self.video_button.configure, {"state": "normal"})
 
     def _video_complete(self, output: Path) -> None:
         self.status_var.set("Video italiano completato")
         messagebox.showinfo("Video creato", f"File salvato:\n{output}")
-
-    def _resolve_input(
-        self,
-        value: str,
-        cookies_browser: str | None = None,
-        source_language: str = "auto",
-    ) -> Path:
-        if not is_web_url(value):
-            return Path(value)
-        if self.download_directory is None:
-            self.download_directory = tempfile.TemporaryDirectory(prefix="uvt-url-")
-        self.after(0, self.status_var.set, "Download video: avvio…")
-        path, has_subtitles = download_video(
-            value,
-            self.download_directory.name,
-            cookies_browser=cookies_browser,
-            source_language=source_language,
-            on_progress=lambda text: self.after(0, self.status_var.set, text),
-        )
-        if not has_subtitles:
-            self.after(
-                0,
-                self.status_var.set,
-                "Nessun sottotitolo utilizzabile: verrà usata la trascrizione locale.",
-            )
-        return path
 
     def _toggle_overlay(self) -> None:
         visible = self.overlay.toggle()
@@ -1307,7 +1242,7 @@ class TranslatorWindow(tk.Tk):
     def _load_models(self) -> None:
         try:
             models = OllamaTranslator(model="translategemma:latest").list_models()
-            self.after(0, self.model_combo.configure, {"values": models})
+            self._call_in_ui(self.model_combo.configure, {"values": models})
         except Exception as error:
             log_exception("models", "discovery_failed", error)
 
@@ -1316,10 +1251,10 @@ class TranslatorWindow(tk.Tk):
             devices = capture_device_names()
         except Exception as error:
             log_exception("audio", "device_discovery_failed", error)
-            self.after(0, self._apply_capture_device_error, error)
+            self._call_in_ui(self._apply_capture_device_error, error)
             return
         values = ("Audio di sistema (predefinito)", *devices)
-        self.after(0, self._apply_capture_devices, values)
+        self._call_in_ui(self._apply_capture_devices, values)
 
     def _apply_capture_device_error(self, error: Exception) -> None:
         self._capture_devices_loaded = True
@@ -1407,27 +1342,27 @@ class TranslatorWindow(tk.Tk):
             if action is None:
                 continue
             try:
-                action()
+                stopped = action()
+                if stopped is False:
+                    failures.append(name)
             except Exception as error:
                 failures.append(name)
                 log_exception("shutdown", f"{name}_stop_failed", error)
+        workers_stopped = self._join_workers()
+        if not workers_stopped:
+            failures.append("workers")
         restored = self._restore_browser_audio()
         try:
             self._save_app_settings()
         except Exception as error:
             failures.append("settings")
             log_exception("shutdown", "settings_flush_failed", error)
-        for name, directory in (
-            ("download_temp", self.download_directory),
-            ("preview_temp", self.preview_directory),
-        ):
-            if directory is None:
-                continue
+        if workers_stopped:
             try:
-                directory.cleanup()
+                self.workflow.close()
             except Exception as error:
-                failures.append(name)
-                log_exception("shutdown", f"{name}_cleanup_failed", error)
+                failures.append("workflow")
+                log_exception("shutdown", "workflow_cleanup_failed", error)
         if not restored:
             try:
                 messagebox.showwarning(

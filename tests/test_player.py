@@ -1,3 +1,4 @@
+import threading
 from types import SimpleNamespace
 
 from uvt.player import SubtitlePlayer
@@ -22,6 +23,22 @@ def test_player_initial_state() -> None:
     player = SubtitlePlayer([], translator=object(), cache=object())  # type: ignore
     assert not player.running
     assert not player.paused
+
+
+def test_player_stop_waits_for_worker() -> None:
+    player = SubtitlePlayer([], translator=object(), cache=object())  # type: ignore
+    started = threading.Event()
+
+    def run() -> None:
+        started.set()
+        player._stop.wait()
+
+    player._run = run  # type: ignore[method-assign]
+    player.start()
+    assert started.wait(1.0)
+
+    assert player.stop(timeout=1.0)
+    assert player._thread is None
 
 
 def test_pause_toggle() -> None:

@@ -166,12 +166,12 @@ UVT salva dati operativi in:
 Contenuti principali:
 
 - `settings.json`: preferenze utente.
-- `cache\translations-v1.json`: cache traduzioni.
+- `cache\translations-v5.json`: cache traduzioni.
 - `logs\uvt.log`: diagnostica rotante privacy-safe.
 - `browser-requests\`: marker anti-replay.
 - stato routing audio: lease per recupero dopo crash o chiusura forzata.
 
-Per azzerare le preferenze chiudi UVT e rinomina `settings.json`. Per svuotare solo la cache elimina `cache\translations-v1.json`.
+Per azzerare le preferenze chiudi UVT e rinomina `settings.json`. Per svuotare solo la cache elimina `cache\translations-v5.json`.
 
 ## Verifica
 
@@ -183,7 +183,7 @@ La verifica e' non mutante e controlla sintassi, test, versioni, dipendenze Pyth
 
 Ultima validazione locale registrata in `WINDOWS_VALIDATION.md`:
 
-- `120 passed` nella suite automatica.
+- `117 passed` nell'ultima validazione Windows registrata.
 - Build PyInstaller completata.
 - Smoke test single-instance completato.
 - ZIP e payload verificati con checksum.

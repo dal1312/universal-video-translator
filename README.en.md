@@ -166,12 +166,12 @@ UVT stores operational data in:
 Main contents:
 
 - `settings.json`: user preferences.
-- `cache\translations-v1.json`: translation cache.
+- `cache\translations-v5.json`: translation cache.
 - `logs\uvt.log`: privacy-safe rotating diagnostics.
 - `browser-requests\`: anti-replay markers.
 - audio-routing state: crash-recovery lease for browser output restoration.
 
-To reset preferences, close UVT and rename `settings.json`. To clear translations only, delete `cache\translations-v1.json`.
+To reset preferences, close UVT and rename `settings.json`. To clear translations only, delete `cache\translations-v5.json`.
 
 ## Verification
 
@@ -183,7 +183,7 @@ Verification is non-mutating and checks syntax, tests, versions, Python dependen
 
 The latest local validation recorded in `WINDOWS_VALIDATION.md` includes:
 
-- `120 passed` in the automated suite.
+- `117 passed` in the latest recorded Windows validation.
 - Successful PyInstaller build.
 - Successful single-instance packaged smoke test.
 - ZIP and payload checksum verification.

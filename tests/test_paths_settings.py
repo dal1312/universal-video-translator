@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from uvt.cache import TranslationCache
 from uvt.paths import app_paths

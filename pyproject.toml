@@ -15,7 +15,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9"]
+dev = [
+  "numpy>=1.26,<3",
+  "pytest>=8,<9",
+  "ruff>=0.12,<1",
+]
 audio = ["faster-whisper>=1.1,<2"]
 youtube = ["yt-dlp"]
 live = ["faster-whisper>=1.1,<2", "numpy>=1.26,<3", "soundcard>=0.4,<1"]
