@@ -2,64 +2,92 @@
 
 [Italiano](README.md) | [English](README.en.md)
 
-Applicazione desktop Windows per tradurre video in italiano e riprodurre una voce sintetizzata sincronizzata con le battute originali. La pipeline usa sottotitoli esistenti quando disponibili e Faster-Whisper come fallback.
+Universal Video Translator e' un'app desktop Windows per tradurre contenuti video in italiano, creare una voce sintetizzata sincronizzata e tradurre in tempo reale l'audio riprodotto dal browser tramite **AI Overlay OS**.
 
-> Stato: **v0.2.1 browser integration**. L'estensione avvia esclusivamente AI Overlay OS senza leggere il link; la modalità Video e file resta disponibile manualmente nell'app.
+La versione **v0.2.1** introduce l'integrazione browser sicura: l'estensione non legge il link della pagina, non invia URL all'app e avvia solo AI Overlay OS. La modalita' **Video e file** resta disponibile manualmente per URL YouTube, video locali, audio, SRT e VTT.
 
-## Funzioni
+## Stato Del Progetto
 
-- URL YouTube tramite yt-dlp e cookie del browser;
-- video e audio locali;
-- priorità ai sottotitoli del video, con selezione automatica della lingua nativa;
-- trascrizione locale con Faster-Whisper quando i sottotitoli non sono disponibili;
-- traduzione italiana locale tramite Ollama;
-- scelta del modello Ollama dalla GUI, con `translategemma:latest` predefinito;
-- sintesi vocale Kokoro-82M con Sara e Nicola;
-- fallback alle voci installate in Windows;
-- buffer progressivo per iniziare la riproduzione senza attendere l’intero video;
-- pulizia dei sottotitoli YouTube progressivi per evitare ripetizioni ed eco;
-- coda vocale serializzata per impedire sovrapposizioni;
-- player video ridimensionabile con Avvia, Pausa e Stop;
-- tema scuro e menu contestuale per incollare i collegamenti;
-- testo tradotto, overlay desktop e modalità Live PC;
-- esportazione WAV/MP3 e creazione di un MP4 con traccia italiana;
-- cache locale delle traduzioni;
-- impostazioni persistenti, diagnostica rotante e recupero del routing audio in `%LOCALAPPDATA%\UniversalVideoTranslator`;
-- singola istanza desktop: i click successivi dell'estensione vengono inoltrati alla finestra già aperta;
-- avvio diretto di AI Overlay OS da Chrome/Edge tramite protocollo locale `uvt://`, senza trasferire l'URL.
+- Versione corrente: `0.2.1`.
+- Piattaforma target: Windows 10/11 x64.
+- Distribuzione consigliata: ZIP portatile generato dalla pipeline di release.
+- Elaborazione: locale, con Ollama, Faster-Whisper e Kokoro/Windows voices.
+- Browser supportati dall'estensione: Chrome ed Edge in modalita' unpacked.
+
+## Funzionalita'
+
+- Traduzione italiana di video locali, audio, sottotitoli SRT/VTT e URL supportati da yt-dlp.
+- Download YouTube con controllo Deno, limite qualita' 720p e avanzamento visibile.
+- Uso prioritario dei sottotitoli esistenti; fallback locale con Faster-Whisper.
+- Traduzione locale tramite Ollama, con `translategemma:latest` come modello predefinito.
+- Sintesi vocale Kokoro-82M, voci Windows e coda vocale anti-sovrapposizione.
+- Player progressivo con video ridimensionabile, pausa, stop e audio italiano senza traccia originale in sottofondo.
+- Esportazione audio WAV/MP3 e creazione MP4 con traccia italiana.
+- AI Overlay OS per tradurre in tempo reale l'audio del browser.
+- Routing automatico Chrome/Edge verso VB-Cable con ripristino crash-safe.
+- Singola istanza desktop con inoltro locale autenticato dei click successivi dell'estensione.
+- Impostazioni, cache, log e stato di recupero in `%LOCALAPPDATA%\UniversalVideoTranslator`.
+- Build Windows riproducibile con ZIP, checksum, provenienza e licenze.
+
+## Modalita' Operative
+
+### Video e file
+
+Usa questa modalita' quando vuoi elaborare un file o un link manualmente.
+
+1. Inserisci un URL YouTube/supportato oppure seleziona un file video, audio, SRT o VTT.
+2. Scegli modello Ollama, lingua sorgente, motore voce e voce.
+3. Premi **Avvia**.
+4. Riproduci il risultato oppure esporta audio/video.
+
+Per YouTube lascia normalmente la lingua su `auto`. Se il video richiede autenticazione, seleziona nelle impostazioni avanzate il browser in cui hai gia' effettuato l'accesso.
+
+### AI Overlay OS
+
+Usa questa modalita' per tradurre in tempo reale cio' che senti nel browser.
+
+1. Installa VB-Cable.
+2. Avvia UVT.
+3. UVT rileva `CABLE Output` e abilita la voce italiana.
+4. Premi l'estensione nel browser oppure avvia manualmente **AI Overlay OS**.
+5. Il browser viene instradato su `CABLE Input`; le casse/cuffie restano come uscita predefinita Windows.
+
+Se VB-Cable non viene rilevato, l'avvio automatico da estensione viene bloccato per evitare di catturare l'audio di sistema sbagliato.
 
 ## Pipeline
 
 ```text
 Video / YouTube / SRT / VTT
-            |
-            v
-Sottotitoli esistenti oppure Faster-Whisper
-            |
-            v
+        |
+        v
+Sottotitoli esistenti o Faster-Whisper
+        |
+        v
 Traduzione italiana con Ollama
-            |
-            v
+        |
+        v
 Voce Kokoro o Windows
-            |
-            v
-Player sincronizzato / esportazione audio-video
+        |
+        v
+Player sincronizzato o esportazione
 ```
+
+Per AI Overlay OS la pipeline lavora su finestre audio in tempo reale invece che su un file completo.
 
 ## Requisiti Windows
 
-- Windows 10 o 11;
-- Python 3.10 o superiore; Python 3.11+ consigliato;
-- [Ollama](https://ollama.com/download/windows);
-- FFmpeg completo di `ffmpeg`, `ffprobe` e `ffplay` nel PATH;
-- eSpeak NG x64 per le voci Kokoro;
-- [Deno](https://deno.com/) per i link YouTube;
-- [VB-Cable](https://vb-audio.com/Cable/) per l'avvio automatico AI Overlay OS dal browser;
-- spazio disponibile per dipendenze, modelli Ollama e Kokoro.
+- Windows 10 o Windows 11 x64.
+- Python 3.10 x64 per l'esecuzione da sorgente.
+- [Ollama](https://ollama.com/download/windows) con modello `translategemma:latest` o compatibile.
+- FFmpeg completo di `ffmpeg`, `ffprobe` e `ffplay`.
+- [Deno](https://deno.com/) per i link YouTube.
+- [VB-Cable](https://vb-audio.com/Cable/) per l'avvio automatico AI Overlay OS dal browser.
+- eSpeak NG x64 o dati eSpeak inclusi nella build per Kokoro.
+- Spazio disco sufficiente per modelli e dipendenze locali.
 
-## Installazione rapida
+## Installazione Da Sorgente
 
-Apri PowerShell nella cartella del progetto:
+Apri PowerShell nella cartella del progetto ed esegui:
 
 ```powershell
 .\INSTALL_WINDOWS.bat
@@ -67,86 +95,83 @@ Apri PowerShell nella cartella del progetto:
 .\AVVIA_WINDOWS.bat
 ```
 
-`INSTALL_WINDOWS.bat` crea `.venv` e installa le dipendenze usando vincoli di versione verificati. Non modifica il Python globale e interrompe immediatamente l'installazione in caso di errore. Per scaricare anche il modello esegui `scripts\windows\Install-Windows.ps1 -PullModel`.
+L'installazione usa sempre il Python della `.venv`, applica vincoli di versione verificati e termina al primo errore. Non modifica il Python globale.
 
-Al primo utilizzo di Kokoro viene scaricato anche il modello `hexgrad/Kokoro-82M`.
+Per scaricare anche il modello predefinito:
 
-## Avvio manuale
+```powershell
+scripts\windows\Install-Windows.ps1 -PullModel
+```
+
+## Avvio Manuale
 
 ```powershell
 .\.venv\Scripts\python.exe .\universal_video_translator.py
 ```
 
-Se Ollama non è già attivo:
+Se Ollama non e' gia' attivo:
 
 ```powershell
 ollama serve
 ```
 
-## Utilizzo
+## Collegamento Browser
 
-1. Inserisci un URL YouTube oppure seleziona un video, audio, SRT o VTT.
-2. Scegli modello Ollama, lingua originale, motore e voce.
-3. Premi **Avvia**.
-4. Usa **Esporta audio** o **Crea video IT** per salvare il risultato.
-
-Per YouTube lascia normalmente la lingua su `auto`. Se il sito richiede autenticazione, seleziona il browser nel quale hai effettuato l’accesso.
-
-## Collegamento browser v0.2
-
-1. Nell'app premi **Collega browser**. Windows registra `uvt://` soltanto per l'utente corrente e apre la cartella dell'estensione.
-2. Apri `chrome://extensions` oppure `edge://extensions`.
-3. Attiva **Modalità sviluppatore**, scegli **Carica estensione non pacchettizzata** e seleziona la cartella aperta dall'app.
-4. Fissa l'estensione **Start UVT AI Overlay** alla barra.
-5. Avvia il video nel browser e premi l'estensione. La pagina e il video restano aperti; UVT seleziona **AI Overlay OS**, instrada l'audio del browser tramite VB-Cable e avvia automaticamente la traduzione in tempo reale.
-
-> Comportamento atteso v0.2.1: il click non compila **Video e file**, non avvia yt-dlp e non scarica il video. Se compare un URL nell'app, è ancora attiva una versione precedente dell'estensione.
-
-L'estensione **non legge e non trasmette l'URL** e non richiede alcun permesso browser: non dispone di permessi sui siti, content script, cookie, cronologia o altre schede e non usa servizi cloud. Apre una scheda locale attiva per rendere visibile la conferma del protocollo; Chrome o Edge possono lasciarla aperta e in tal caso puoi chiuderla normalmente. Ogni click genera una richiesta monouso contenente soltanto browser, orario e ID casuale: richieste duplicate, già elaborate o non recenti vengono ignorate senza aprire UVT. Se UVT è già aperto, una connessione locale autenticata inoltra la richiesta alla stessa finestra senza creare processi Overlay concorrenti. Il browser dichiarato dall'estensione viene usato esclusivamente per il routing audio Overlay. I piccoli marker anti-replay in `%LOCALAPPDATA%\UniversalVideoTranslator\browser-requests` non contengono URL; quelli scaduti vengono eliminati al successivo utilizzo dell'estensione.
-
-`uvt://` è un'integrazione locale di Windows, non un canale autenticato crittograficamente. Conferma l'apertura del protocollo soltanto da browser e applicazioni attendibili.
-
-## Audio automatico AI Overlay OS
-
-All'avvio, UVT rileva e seleziona automaticamente `CABLE Output` come ingresso e abilita la voce italiana. Il click sull'estensione attende questo rilevamento e avvia l'Overlay senza compilare il campo **Video e file**. Se VB-Cable non viene rilevato, l'avvio automatico viene annullato invece di catturare l'audio di sistema. Il browser che ha aperto UVT viene instradato su `CABLE Input`; Stop, errore e chiusura dell'app lo ripristinano sull'uscita Windows predefinita. Prima del routing viene salvato un lease locale: dopo crash o chiusura forzata, UVT tenta il recupero automatico al successivo avvio. Se UVT è stato aperto manualmente, viene usato il browser scelto nella nuova impostazione avanzata **Browser audio Overlay**, separata dai cookie YouTube. Le cuffie o casse fisiche devono restare il dispositivo predefinito, così viene riprodotta soltanto la voce italiana.
-
-Puoi comunque scegliere manualmente `Audio di sistema (predefinito)` o disabilitare la voce italiana dopo il rilevamento dei dispositivi.
-
-Il routing usa il componente locale SoundVolumeView incluso intatto nella distribuzione. Se il componente non è disponibile, l'avvio automatico da estensione viene annullato; l'avvio manuale resta disponibile e segnala che il routing deve essere eseguito manualmente.
-
-### Aggiornamento e controllo rapido
-
-Dopo ogni aggiornamento dell'app:
-
-1. Apri `chrome://extensions` oppure `edge://extensions`.
-2. Premi **Ricarica** su **Start UVT AI Overlay**.
-3. Verifica che l'estensione caricata punti alla cartella della build corrente:
+1. Premi **Collega browser** nell'app.
+2. Windows registra `uvt://` solo per l'utente corrente.
+3. L'app apre la cartella dell'estensione inclusa nella build.
+4. Apri `chrome://extensions` oppure `edge://extensions`.
+5. Attiva **Modalita' sviluppatore**.
+6. Seleziona **Carica estensione non pacchettizzata**.
+7. Scegli questa cartella:
 
 ```text
 UniversalVideoTranslator\_internal\browser_extension
 ```
 
-Se il click inserisce ancora un link in **Video e file**, rimuovi la vecchia estensione e carica nuovamente questa cartella. Se UVT non parte, premi ancora **Collega browser** per aggiornare il percorso `uvt://`. Se compare `VB-Cable non rilevato`, verifica che `CABLE Output (VB-Audio Virtual Cable)` sia presente nei dispositivi di registrazione di Windows: per sicurezza l'avvio automatico resta disattivato finché il dispositivo non è disponibile.
+8. Fissa **Start UVT AI Overlay** nella barra del browser.
 
-## Build EXE Windows
+Comportamento previsto in v0.2.1:
 
-Dopo una verifica completata:
+- il click non legge l'URL della pagina;
+- il click non compila **Video e file**;
+- il click non avvia yt-dlp e non scarica il video;
+- il click seleziona **AI Overlay OS**, attende VB-Cable e avvia la traduzione live;
+- se UVT e' gia' aperto, la richiesta viene inoltrata alla finestra esistente.
 
-```powershell
-.\BUILD_EXE_WINDOWS.bat
-```
+Se dopo un aggiornamento il click inserisce ancora un link in **Video e file**, rimuovi la vecchia estensione, ricarica quella inclusa nella build corrente e premi di nuovo **Collega browser**.
 
-Il comando standard crea una release ufficiale soltanto da un worktree pulito con tag `v0.2.1`. Per un pacchetto locale di collaudo da modifiche non ancora committate usa esplicitamente `\.\BUILD_EXE_WINDOWS.bat -AllowDirty`; la provenienza registrerà `dirty: true`.
+## Sicurezza E Privacy
 
-La pipeline esegue preflight, test, build PyInstaller, controllo risorse e checksum. L'applicazione viene creata in:
+UVT e' progettato per uso locale.
+
+- L'estensione non richiede permessi browser.
+- L'estensione non ha content script, host permissions, cookie access, history access o analytics.
+- Il protocollo `uvt://` trasporta solo browser, timestamp e ID casuale monouso.
+- Le richieste duplicate, vecchie o gia' usate vengono ignorate.
+- I marker anti-replay non contengono URL e vengono puliti al successivo utilizzo.
+- I log non registrano URL, trascrizioni, traduzioni, cookie o nomi dei dispositivi.
+- Le connessioni esterne servono solo per download video, dipendenze e modelli scelti dall'utente.
+
+`uvt://` resta un'integrazione locale di Windows, non un canale crittograficamente autenticato end-to-end. Conferma l'apertura del protocollo solo da browser e applicazioni attendibili.
+
+## Dati Locali
+
+UVT salva dati operativi in:
 
 ```text
-dist-browser-v0.2-release\UniversalVideoTranslator\UniversalVideoTranslator.exe
+%LOCALAPPDATA%\UniversalVideoTranslator
 ```
 
-La release portatile completa viene creata in `release\UniversalVideoTranslator-0.2.1-windows-x86_64.zip`, insieme al checksum `.zip.sha256`. Il pacchetto contiene README, changelog, licenze, provenienza e `SHA256SUMS.txt`; non distribuire soltanto il file EXE.
+Contenuti principali:
 
-Ollama e il modello di traduzione restano componenti esterni e devono essere disponibili sul PC che esegue l’applicazione.
+- `settings.json`: preferenze utente.
+- `cache\translations-v1.json`: cache traduzioni.
+- `logs\uvt.log`: diagnostica rotante privacy-safe.
+- `browser-requests\`: marker anti-replay.
+- stato routing audio: lease per recupero dopo crash o chiusura forzata.
+
+Per azzerare le preferenze chiudi UVT e rinomina `settings.json`. Per svuotare solo la cache elimina `cache\translations-v1.json`.
 
 ## Verifica
 
@@ -154,34 +179,69 @@ Ollama e il modello di traduzione restano componenti esterni e devono essere dis
 .\VERIFICA_WINDOWS.bat
 ```
 
-La verifica è non mutante e controlla sintassi, test automatici, versioni, dipendenze Python, FFmpeg/ffprobe/ffplay, Deno, SoundVolumeView, eSpeak NG, Kokoro, Faster-Whisper, SoundCard, Ollama, modello predefinito e VB-Cable.
+La verifica e' non mutante e controlla sintassi, test, versioni, dipendenze Python, FFmpeg/ffprobe/ffplay, Deno, SoundVolumeView, eSpeak NG, Kokoro, Faster-Whisper, SoundCard, Ollama, modello predefinito e VB-Cable.
 
-Per una prova rapida usa `examples\demo.srt`. Prima di distribuire una build verifica anche un video locale e un URL YouTube.
+Ultima validazione locale registrata in `WINDOWS_VALIDATION.md`:
 
-## Dati e privacy
+- `120 passed` nella suite automatica.
+- Build PyInstaller completata.
+- Smoke test single-instance completato.
+- ZIP e payload verificati con checksum.
 
-Traduzione, trascrizione e sintesi vocale vengono eseguite localmente. Le connessioni esterne servono per scaricare video, dipendenze e modelli. Impostazioni, cache, log diagnostici rotanti e stato di recupero sono salvati in `%LOCALAPPDATA%\UniversalVideoTranslator`. I log registrano eventi tecnici e tipi di errore, ma non URL, trascrizioni, traduzioni, cookie o nomi dei dispositivi. Il file principale è `logs\uvt.log`.
+## Build E Release Windows
 
-## Ripristino e diagnostica
+```powershell
+.\BUILD_EXE_WINDOWS.bat
+```
 
-- dopo una chiusura forzata, riavvia UVT: un lease persistente tenta di riportare il browser all'uscita Windows predefinita prima di accettare un nuovo Overlay;
-- se un problema persiste, consulta `%LOCALAPPDATA%\UniversalVideoTranslator\logs\uvt.log`;
-- per azzerare le preferenze chiudi UVT e rinomina `settings.json`; per azzerare soltanto la cache elimina `cache\translations-v1.json`;
-- una seconda apertura dell'app o un nuovo click dell'estensione riusa la singola istanza già attiva.
+Il comando standard crea una release ufficiale solo da un worktree pulito e taggato `v0.2.1`. Per un pacchetto locale di collaudo da modifiche non ancora committate usa esplicitamente:
 
-## Limiti noti
+```powershell
+.\BUILD_EXE_WINDOWS.bat -AllowDirty
+```
 
-- la qualità della traduzione dipende dal modello Ollama selezionato;
-- il primo avvio di Kokoro richiede il download del modello;
-- YouTube può richiedere cookie validi e può modificare i propri sistemi di accesso;
-- velocità di preparazione e ritardo dipendono dalle prestazioni del PC;
-- la v0.2.1 è una distribuzione portatile, non un installer MSI/Setup;
-- dopo aver spostato la cartella portatile, premi nuovamente **Collega browser** per aggiornare il percorso registrato.
+Output principali:
+
+```text
+dist-browser-v0.2-release\UniversalVideoTranslator\UniversalVideoTranslator.exe
+release\UniversalVideoTranslator-0.2.1-windows-x86_64.zip
+release\UniversalVideoTranslator-0.2.1-windows-x86_64.zip.sha256
+```
+
+Distribuisci lo ZIP completo, non il solo EXE. Il pacchetto include README, changelog, licenza, note terze parti, provenienza e `SHA256SUMS.txt`.
+
+## Componenti Terze Parti
+
+La distribuzione include o usa componenti esterni, documentati in `THIRD_PARTY_NOTICES.md`.
+
+- SoundVolumeView 2.53 e' incluso intatto per il routing audio per-app.
+- FFmpeg full build viene copiato nella build Windows.
+- Ollama, Deno, VB-Cable e i modelli restano componenti esterni/locali.
+
+Verifica le condizioni di licenza prima di ridistribuire il pacchetto in contesti commerciali.
+
+## Risoluzione Problemi
+
+- **Il click apre Video e file**: estensione vecchia; rimuovila e carica quella da `_internal\browser_extension`.
+- **UVT non parte dal browser**: premi **Collega browser** per aggiornare il percorso `uvt://`.
+- **VB-Cable non rilevato**: verifica che `CABLE Output (VB-Audio Virtual Cable)` sia tra i dispositivi di registrazione Windows.
+- **Il browser resta su CABLE Input dopo un crash**: riavvia UVT; il lease di routing tenta il ripristino automatico.
+- **YouTube fallisce**: controlla Deno, FFmpeg e cookie browser nelle impostazioni avanzate.
+- **Serve diagnosi**: consulta `%LOCALAPPDATA%\UniversalVideoTranslator\logs\uvt.log`.
+
+## Limiti Noti
+
+- La qualita' della traduzione dipende dal modello Ollama selezionato.
+- Il primo avvio di Kokoro puo' richiedere il download del modello.
+- YouTube puo' cambiare controlli di accesso o richiedere cookie validi.
+- Il routing audio e' per processo browser, non per singola scheda.
+- La v0.2.1 e' una distribuzione portatile, non un installer MSI.
+- Dopo aver spostato la cartella portatile devi premere di nuovo **Collega browser**.
 
 ## Licenza
 
-Distribuito con licenza [Apache 2.0](LICENSE).
+Il progetto e' distribuito con licenza [Apache 2.0](LICENSE).
 
 ## Autore
 
-Progetto sviluppato da [dal1312](https://github.com/dal1312).
+Sviluppato da [dal1312](https://github.com/dal1312).
