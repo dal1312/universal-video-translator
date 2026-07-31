@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Send to Universal Video Translator",
-  "version": "0.2.0",
-  "description": "Send the active video page to the local Universal Video Translator application.",
-  "permissions": ["activeTab"],
+  "name": "Start UVT AI Overlay",
+  "version": "0.2.1",
+  "description": "Start the local Universal Video Translator AI Overlay without reading the active page URL.",
+  "permissions": [],
   "background": {
     "service_worker": "service-worker.js"
   },
   "action": {
-    "default_title": "Send to Universal Video Translator"
+    "default_title": "Start UVT AI Overlay OS"
   }
 }

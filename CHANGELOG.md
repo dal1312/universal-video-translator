@@ -2,6 +2,17 @@
 
 [Italiano](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## 0.2.1 - 2026-07-31
+
+- La scheda sorgente non viene più sostituita dal protocollo `uvt://`.
+- Il click sull'estensione apre e avvia direttamente **AI Overlay OS**; l'URL non viene letto, trasmesso, compilato o scaricato.
+- Le richieste browser sono monouso; duplicati, ripristini e richieste non recenti vengono ignorati senza aprire UVT.
+- Il consenso iniziale al protocollo viene mostrato in una scheda attiva.
+- I link pubblici non tentano più di leggere automaticamente il database cookie del browser; i cookie restano selezionabili manualmente e un errore di accesso attiva il retry senza cookie.
+- Il routing audio segue Chrome, Edge o Firefox che ha avviato l'Overlay.
+- L'estensione non richiede alcun permesso browser e non conserva ID di schede da chiudere dopo un riavvio.
+- L'avvio automatico viene annullato se VB-Cable o il routing browser non sono disponibili; ogni errore di setup ripristina l'uscita audio.
+
 ## 0.2.0 - 2026-07-30
 
 - Estensione opzionale Chrome/Edge Manifest V3 con il solo permesso `activeTab`.

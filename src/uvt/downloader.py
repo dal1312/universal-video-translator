@@ -22,6 +22,20 @@ SOURCE_LANGUAGE_CODES = {
 YOUTUBE_FORMAT = "bv*[height<=720]+ba/b[height<=720]"
 
 
+def _is_browser_cookie_error(error: Exception) -> bool:
+    detail = str(error).casefold()
+    return "cookie" in detail and any(
+        marker in detail
+        for marker in (
+            "could not copy",
+            "failed to copy",
+            "failed to decrypt",
+            "cookie database",
+            "cookies database",
+        )
+    )
+
+
 def is_web_url(value: str) -> bool:
     parsed = urlparse(value.strip())
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
@@ -100,7 +114,7 @@ def download_video(
             return
         try:
             if update.get("status") == "finished":
-                on_progress("Download YouTube completato, preparazione…")
+                on_progress("Download video completato, preparazione…")
                 return
             if update.get("status") != "downloading":
                 return
@@ -113,7 +127,7 @@ def download_video(
             progress = min(100, int(downloaded * 100 / total))
             if progress != last_progress:
                 last_progress = progress
-                on_progress(f"Download YouTube: {progress}%")
+                on_progress(f"Download video: {progress}%")
         except Exception:
             return
 
@@ -179,26 +193,36 @@ def download_video(
             )
             return candidates, subtitle_found
 
-    try:
-        candidates, subtitle_found = extract(options)
-    except Exception as exc:
-        detail = str(exc)
-        subtitle_failure = (
-            "video subtitles" in detail.casefold()
-            or "too many requests" in detail.casefold()
-            or "http error 429" in detail.casefold()
-        )
-        if not subtitle_failure:
-            raise DownloadError(f"Download non riuscito: {exc}") from exc
-        fallback = dict(options)
+    def extract_with_subtitle_fallback(download_options):
         try:
-            candidates, subtitle_found = extract(
-                fallback, include_subtitles=False
+            return extract(download_options)
+        except Exception as exc:
+            detail = str(exc)
+            subtitle_failure = (
+                "video subtitles" in detail.casefold()
+                or "too many requests" in detail.casefold()
+                or "http error 429" in detail.casefold()
             )
-        except Exception as fallback_exc:
-            raise DownloadError(
-                f"Download non riuscito: {fallback_exc}"
-            ) from fallback_exc
+            if not subtitle_failure:
+                raise
+            return extract(dict(download_options), include_subtitles=False)
+
+    try:
+        candidates, subtitle_found = extract_with_subtitle_fallback(options)
+    except Exception as exc:
+        if cookies_browser and _is_browser_cookie_error(exc):
+            without_cookies = dict(options)
+            without_cookies.pop("cookiesfrombrowser", None)
+            try:
+                candidates, subtitle_found = extract_with_subtitle_fallback(
+                    without_cookies
+                )
+            except Exception as fallback_exc:
+                raise DownloadError(
+                    f"Download non riuscito: {fallback_exc}"
+                ) from fallback_exc
+        else:
+            raise DownloadError(f"Download non riuscito: {exc}") from exc
     if not candidates:
         raise DownloadError("yt-dlp non ha prodotto un file video.")
     return max(candidates, key=lambda path: path.stat().st_size), bool(

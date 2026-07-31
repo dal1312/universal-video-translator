@@ -2,6 +2,17 @@
 
 [Italiano](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## 0.2.1 - 2026-07-31
+
+- The source tab is no longer replaced with the `uvt://` protocol URL.
+- Selecting the extension opens and starts **AI Overlay OS** directly; the page URL is not read, transferred, filled, or downloaded.
+- Browser requests are one-time; duplicates, restored tabs, and stale requests are ignored without opening UVT.
+- The first-use protocol confirmation is shown in an active tab.
+- Public links no longer read the browser cookie database automatically; cookies remain a manual option and an access failure retries without cookies.
+- Audio routing follows the Chrome, Edge, or Firefox instance that started Overlay.
+- The extension requests no browser permissions and never retains tab IDs for cleanup after a restart.
+- Automatic startup is cancelled when VB-Cable or browser routing is unavailable; every setup failure restores browser audio.
+
 ## 0.2.0 - 2026-07-30
 
 - Optional Manifest V3 Chrome/Edge extension with only the `activeTab` permission.

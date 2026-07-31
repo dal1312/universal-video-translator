@@ -9,6 +9,13 @@ class AudioRoutingError(RuntimeError):
     pass
 
 
+_BROWSER_PROCESSES = {
+    "chrome": "chrome.exe",
+    "edge": "msedge.exe",
+    "firefox": "firefox.exe",
+}
+
+
 def sound_volume_view_path() -> Path:
     roots = []
     bundle_root = getattr(sys, "_MEIPASS", None)
@@ -22,13 +29,16 @@ def sound_volume_view_path() -> Path:
     raise AudioRoutingError("SoundVolumeView non trovato nella cartella dell'app.")
 
 
-def _set_firefox_output(device: str) -> None:
+def _set_browser_output(browser: str, device: str) -> None:
+    process_name = _BROWSER_PROCESSES.get(browser.lower())
+    if process_name is None:
+        raise AudioRoutingError(f"Browser non supportato per il routing: {browser}")
     command = [
         str(sound_volume_view_path()),
         "/SetAppDefault",
         device,
         "all",
-        "firefox.exe",
+        process_name,
     ]
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
@@ -41,7 +51,7 @@ def _set_firefox_output(device: str) -> None:
             creationflags=flags,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise AudioRoutingError(f"Routing audio Firefox fallito: {exc}") from exc
+        raise AudioRoutingError(f"Routing audio {browser} fallito: {exc}") from exc
     if result.returncode:
         detail = (result.stderr or result.stdout).strip()
         suffix = f": {detail}" if detail else ""
@@ -50,9 +60,9 @@ def _set_firefox_output(device: str) -> None:
         )
 
 
-def route_firefox_to_cable() -> None:
-    _set_firefox_output("CABLE Input")
+def route_browser_to_cable(browser: str) -> None:
+    _set_browser_output(browser, "CABLE Input")
 
 
-def restore_firefox_default() -> None:
-    _set_firefox_output("DefaultRenderDevice")
+def restore_browser_default(browser: str) -> None:
+    _set_browser_output(browser, "DefaultRenderDevice")

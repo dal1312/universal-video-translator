@@ -97,3 +97,50 @@ def test_youtube_download_caps_video_at_720p(monkeypatch, tmp_path) -> None:
     assert video.name == "video.mp4"
     assert not has_subtitles
     assert received["format"] == YOUTUBE_FORMAT
+
+
+def test_browser_cookie_copy_failure_retries_without_cookies(
+    monkeypatch, tmp_path
+) -> None:
+    attempts: list[dict] = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options) -> None:
+            self.params = options
+            attempts.append(dict(options))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def extract_info(self, _url: str, download: bool):
+            assert not download
+            if "cookiesfrombrowser" in self.params:
+                raise RuntimeError("Could not copy Chrome cookie database")
+            return {"id": "rumble-video", "ext": "mp4"}
+
+        def process_ie_result(self, info, download: bool):
+            assert download
+            self.prepare_filename(info).write_bytes(b"video")
+            return info
+
+        def prepare_filename(self, info):
+            return tmp_path / f"{info['id']}.{info['ext']}"
+
+    monkeypatch.setattr("uvt.downloader.ensure_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setitem(
+        sys.modules, "yt_dlp", types.SimpleNamespace(YoutubeDL=FakeYoutubeDL)
+    )
+
+    video, has_subtitles = download_video(
+        "https://rumble.com/embed/v5pv5f",
+        tmp_path,
+        cookies_browser="chrome",
+    )
+
+    assert video.name == "rumble-video.mp4"
+    assert not has_subtitles
+    assert attempts[0]["cookiesfrombrowser"] == ("chrome",)
+    assert "cookiesfrombrowser" not in attempts[1]
