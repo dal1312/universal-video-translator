@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -51,14 +52,13 @@ def test_unsupported_browser_is_rejected() -> None:
 def test_gui_routes_and_restores_only_for_cable_output(monkeypatch) -> None:
     route = Mock()
     restore = Mock()
-    monkeypatch.setattr(gui, "route_browser_to_cable", route)
-    monkeypatch.setattr(gui, "restore_browser_default", restore)
     window = SimpleNamespace(
         capture_device_var=Mock(get=Mock(return_value="CABLE Output (VB-Audio)")),
         cookies_var=Mock(get=Mock(return_value="firefox")),
         status_var=Mock(),
         _source_browser="chrome",
         _browser_audio_routed=None,
+        _audio_router=Mock(route=route, restore=restore),
     )
     window._routing_browser = lambda: gui.TranslatorWindow._routing_browser(window)
 
@@ -83,14 +83,13 @@ def test_gui_routing_prefers_calling_browser_over_cookie_setting() -> None:
 def test_failed_route_attempts_immediate_restore(monkeypatch) -> None:
     route = Mock(side_effect=audio_routing.AudioRoutingError("route failed"))
     restore = Mock()
-    monkeypatch.setattr(gui, "route_browser_to_cable", route)
-    monkeypatch.setattr(gui, "restore_browser_default", restore)
     window = SimpleNamespace(
         capture_device_var=Mock(get=Mock(return_value="CABLE Output")),
         cookies_var=Mock(get=Mock(return_value="nessuno")),
         status_var=Mock(),
         _source_browser="chrome",
         _browser_audio_routed=None,
+        _audio_router=Mock(route=route, restore=restore),
     )
     window._routing_browser = lambda: gui.TranslatorWindow._routing_browser(window)
     window._restore_browser_audio = lambda: (
@@ -111,10 +110,10 @@ def test_failed_restore_keeps_state_for_retry(monkeypatch) -> None:
             None,
         ]
     )
-    monkeypatch.setattr(gui, "restore_browser_default", restore)
     window = SimpleNamespace(
         status_var=Mock(),
         _browser_audio_routed="chrome",
+        _audio_router=Mock(restore=restore),
     )
 
     gui.TranslatorWindow._restore_browser_audio(window)
@@ -158,7 +157,7 @@ def test_gui_selects_cable_and_voice_when_devices_are_ready() -> None:
 
     window.capture_combo.configure.assert_called_once_with(values=values)
     window.capture_device_var.set.assert_called_once_with(values[2])
-    window.live_voice_var.set.assert_called_once_with(True)
+    window.live_voice_var.set.assert_not_called()
     window.live_button.configure.assert_called_once_with(state="normal")
 
 
@@ -230,3 +229,104 @@ def test_overlay_setup_failure_restores_browser_audio() -> None:
 
     window._restore_browser_audio.assert_called_once_with()
     window.live_button.configure.assert_not_called()
+
+
+def test_routing_lease_is_written_before_route_command(tmp_path) -> None:
+    state = tmp_path / "routing.json"
+    observed: list[dict] = []
+    manager = audio_routing.AudioRoutingLeaseManager(
+        state,
+        route_command=lambda _browser: observed.append(
+            json.loads(state.read_text(encoding="utf-8"))
+        ),
+        restore_command=Mock(),
+    )
+
+    manager.route("chrome")
+
+    assert observed[0]["phase"] == "pending"
+    assert observed[0]["browser"] == "chrome"
+    assert json.loads(state.read_text(encoding="utf-8"))["phase"] == "active"
+
+
+def test_failed_route_leaves_recoverable_pending_lease(tmp_path) -> None:
+    state = tmp_path / "routing.json"
+    manager = audio_routing.AudioRoutingLeaseManager(
+        state,
+        route_command=Mock(side_effect=audio_routing.AudioRoutingError("busy")),
+        restore_command=Mock(),
+    )
+
+    with pytest.raises(audio_routing.AudioRoutingError, match="busy"):
+        manager.route("edge")
+
+    lease = json.loads(state.read_text(encoding="utf-8"))
+    assert lease["phase"] == "pending"
+    assert lease["browser"] == "edge"
+
+
+def test_recover_restores_stale_lease_and_removes_it(tmp_path) -> None:
+    state = tmp_path / "routing.json"
+    restored = Mock()
+    manager = audio_routing.AudioRoutingLeaseManager(
+        state,
+        route_command=Mock(),
+        restore_command=restored,
+    )
+    manager._write_lease(
+        {
+            "schema_version": 1,
+            "browser": "firefox",
+            "owner_pid": 123,
+            "owner_token": "stale-owner",
+            "phase": "active",
+            "created_at": 1,
+            "restore_target": "DefaultRenderDevice",
+        }
+    )
+
+    assert manager.recover() is True
+
+    restored.assert_called_once_with("firefox")
+    assert not state.exists()
+
+
+def test_failed_restore_keeps_persisted_lease_for_next_start(tmp_path) -> None:
+    state = tmp_path / "routing.json"
+    manager = audio_routing.AudioRoutingLeaseManager(
+        state,
+        route_command=Mock(),
+        restore_command=Mock(side_effect=OSError("unavailable")),
+    )
+    manager._write_lease(
+        {
+            "schema_version": 1,
+            "browser": "chrome",
+            "owner_pid": 123,
+            "owner_token": "stale-owner",
+            "phase": "pending",
+            "created_at": 1,
+            "restore_target": "DefaultRenderDevice",
+        }
+    )
+
+    with pytest.raises(audio_routing.AudioRoutingError, match="Ripristino audio"):
+        manager.recover()
+
+    assert state.exists()
+
+
+def test_corrupt_routing_lease_never_executes_restore(tmp_path) -> None:
+    state = tmp_path / "routing.json"
+    state.write_text('{"browser":"chrome","phase":"active"}', encoding="utf-8")
+    restored = Mock()
+    manager = audio_routing.AudioRoutingLeaseManager(
+        state,
+        route_command=Mock(),
+        restore_command=restored,
+    )
+
+    with pytest.raises(audio_routing.AudioRoutingError, match="non valido"):
+        manager.recover()
+
+    restored.assert_not_called()

@@ -34,8 +34,10 @@ all = [
   "yt-dlp",
 ]
 
+[project.gui-scripts]
+universal-video-translator = "uvt.bootstrap:main"
+
 [project.scripts]
-universal-video-translator = "uvt.gui:main"
 uvt-cli = "uvt.app:main"
 
 [tool.setuptools.packages.find]

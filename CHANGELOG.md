@@ -12,6 +12,12 @@
 - Il routing audio segue Chrome, Edge o Firefox che ha avviato l'Overlay.
 - L'estensione non richiede alcun permesso browser e non conserva ID di schede da chiudere dopo un riavvio.
 - L'avvio automatico viene annullato se VB-Cable o il routing browser non sono disponibili; ogni errore di setup ripristina l'uscita audio.
+- Una singola istanza desktop riceve tramite IPC locale autenticato i click successivi dell'estensione.
+- Il routing audio usa un lease persistente e viene recuperato automaticamente dopo crash o chiusura forzata.
+- Impostazioni, cache, log rotanti e stato applicativo sono ora centralizzati in `%LOCALAPPDATA%\UniversalVideoTranslator`.
+- I log diagnostici escludono URL, cookie, trascrizioni, traduzioni e nomi dei dispositivi.
+- Installazione e verifica Windows sono fail-fast e controllano l'intera catena Python, FFmpeg, Deno, Ollama, modello e VB-Cable.
+- La build genera una release portatile con licenze, provenienza, hash per file, ZIP deterministico e checksum esterno.
 
 ## 0.2.0 - 2026-07-30
 

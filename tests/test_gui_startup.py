@@ -1,6 +1,41 @@
 from unittest.mock import Mock
 
 import uvt.gui as gui
+from uvt.settings import AppSettings
+
+
+class _OwnerBroker:
+    activated = False
+
+    def acquire(self) -> bool:
+        return True
+
+    def activate(self) -> None:
+        self.activated = True
+
+    def close(self) -> None:
+        pass
+
+    def begin_shutdown(self) -> None:
+        pass
+
+    def drain_events(self) -> list:
+        return []
+
+
+class _PromotedBroker(_OwnerBroker):
+    def __init__(self) -> None:
+        self.is_owner = False
+        self.acquire_calls = 0
+
+    def acquire(self) -> bool:
+        self.acquire_calls += 1
+        if self.acquire_calls >= 2:
+            self.is_owner = True
+        return self.is_owner
+
+    def forward_overlay(self, _uri: str) -> bool:
+        return False
 
 
 def test_browser_request_does_not_enable_browser_cookies_automatically(
@@ -34,7 +69,11 @@ def test_browser_request_does_not_enable_browser_cookies_automatically(
         Mock(return_value=Mock(start=Mock())),
     )
 
-    window = gui.TranslatorWindow(initial_browser="chrome")
+    store = Mock(load=Mock(return_value=AppSettings()))
+    window = gui.TranslatorWindow(
+        initial_browser="chrome",
+        settings_store=store,
+    )
 
     assert window._source_browser == "chrome"
     assert window.cookies_var.get() == "nessuno"
@@ -44,6 +83,7 @@ def test_main_passes_recent_browser_request_for_automatic_overlay(
     monkeypatch,
 ) -> None:
     window = Mock()
+    broker = _OwnerBroker()
     monkeypatch.setattr(gui, "TranslatorWindow", Mock(return_value=window))
     monkeypatch.setattr(gui, "claim_browser_request", Mock(return_value=True))
 
@@ -51,15 +91,63 @@ def test_main_passes_recent_browser_request_for_automatic_overlay(
         [
             "uvt://overlay?browser=chrome&requested_at=1000"
             "&request_id=123e4567-e89b-42d3-a456-426614174000"
-        ]
+        ],
+        broker=broker,
+        audio_router=Mock(recover=Mock(return_value=False)),
     )
 
     assert result == 0
-    gui.TranslatorWindow.assert_called_once_with(
-        initial_browser="chrome",
-        auto_start_overlay=True,
-    )
+    call = gui.TranslatorWindow.call_args
+    assert call.kwargs["initial_browser"] == "chrome"
+    assert call.kwargs["auto_start_overlay"] is True
+    assert call.kwargs["instance_broker"] is broker
     window.mainloop.assert_called_once_with()
+
+
+def test_main_becomes_owner_when_previous_instance_stops_before_forward(
+    monkeypatch,
+) -> None:
+    window = Mock()
+    broker = _PromotedBroker()
+    monkeypatch.setattr(gui, "TranslatorWindow", Mock(return_value=window))
+    monkeypatch.setattr(gui, "claim_browser_request", Mock(return_value=True))
+    monkeypatch.setattr(gui.time, "sleep", Mock())
+
+    result = gui.main(
+        [
+            "uvt://overlay?browser=chrome&requested_at=1000"
+            "&request_id=123e4567-e89b-42d3-a456-426614174000"
+        ],
+        broker=broker,
+        audio_router=Mock(recover=Mock(return_value=False)),
+    )
+
+    assert result == 0
+    assert broker.acquire_calls == 2
+    assert broker.activated
+    window.mainloop.assert_called_once_with()
+
+
+def test_main_reports_forward_failure_instead_of_silent_success(
+    monkeypatch,
+) -> None:
+    broker = _PromotedBroker()
+    broker.acquire = Mock(return_value=False)
+    times = iter((0.0, 4.0))
+    monkeypatch.setattr(gui.time, "monotonic", lambda: next(times))
+    monkeypatch.setattr(gui, "TranslatorWindow", Mock())
+
+    result = gui.main(
+        [
+            "uvt://overlay?browser=chrome&requested_at=1000"
+            "&request_id=123e4567-e89b-42d3-a456-426614174000"
+        ],
+        broker=broker,
+        audio_router=Mock(recover=Mock(return_value=False)),
+    )
+
+    assert result == 1
+    gui.TranslatorWindow.assert_not_called()
 
 
 def test_browser_request_selects_overlay_without_touching_source() -> None:
@@ -89,12 +177,15 @@ def test_main_reports_invalid_protocol_without_prefilling(monkeypatch) -> None:
     monkeypatch.setattr(gui, "TranslatorWindow", Mock(return_value=window))
     monkeypatch.setattr(gui.messagebox, "showerror", Mock())
 
-    gui.main(["uvt://open?url=https%3A%2F%2Fexample.com"])
-
-    gui.TranslatorWindow.assert_called_once_with(
-        initial_browser=None,
-        auto_start_overlay=False,
+    gui.main(
+        ["uvt://open?url=https%3A%2F%2Fexample.com"],
+        broker=_OwnerBroker(),
+        audio_router=Mock(recover=Mock(return_value=False)),
     )
+
+    call = gui.TranslatorWindow.call_args
+    assert call.kwargs["initial_browser"] is None
+    assert call.kwargs["auto_start_overlay"] is False
     window.after_idle.assert_called_once()
 
 
@@ -102,7 +193,9 @@ def test_legacy_protocol_url_exits_without_opening_window(monkeypatch) -> None:
     monkeypatch.setattr(gui, "TranslatorWindow", Mock())
 
     result = gui.main(
-        ["uvt://translate?url=https%3A%2F%2Fexample.com%2Fvideo"]
+        ["uvt://translate?url=https%3A%2F%2Fexample.com%2Fvideo"],
+        broker=_OwnerBroker(),
+        audio_router=Mock(recover=Mock(return_value=False)),
     )
 
     assert result == 0
@@ -119,7 +212,9 @@ def test_replayed_protocol_request_exits_without_opening_window(
         [
             "uvt://overlay?browser=chrome&requested_at=1000"
             "&request_id=123e4567-e89b-42d3-a456-426614174000"
-        ]
+        ],
+        broker=_OwnerBroker(),
+        audio_router=Mock(recover=Mock(return_value=False)),
     )
 
     assert result == 0

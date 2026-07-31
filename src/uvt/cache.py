@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 import threading
 from pathlib import Path
 
+from .paths import app_paths
+
 
 class TranslationCache:
-    def __init__(self, path: str | Path = ".uvt-cache.json") -> None:
-        self.path = Path(path)
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path is not None else app_paths().translation_cache
         self._data: dict[str, str] = {}
         self._load()
 
@@ -53,6 +57,7 @@ class TranslationCache:
             self._save()
 
     def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         current: dict[str, str] = {}
         if self.path.exists():
             try:
@@ -64,9 +69,20 @@ class TranslationCache:
         current.update(self._data)
         self._data = current
 
-        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-        temporary.write_text(
-            json.dumps(current, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
         )
-        temporary.replace(self.path)
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+                json.dump(current, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.path)
+        except Exception:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+            raise

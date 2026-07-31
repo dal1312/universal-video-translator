@@ -99,8 +99,8 @@ def capture_device_names() -> list[str]:
             },
             key=str.casefold,
         )
-    except Exception:
-        return []
+    except Exception as error:
+        raise LiveCaptureError("Impossibile rilevare i dispositivi audio.") from error
 
 
 def preferred_cable_output(devices: Iterable[str]) -> str | None:

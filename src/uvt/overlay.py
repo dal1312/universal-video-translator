@@ -131,3 +131,22 @@ class SubtitleOverlay(tk.Toplevel):
             return True
         self.hide()
         return False
+
+    def apply_preferences(
+        self,
+        *,
+        geometry: str,
+        alpha: float,
+        font_size: int,
+    ) -> None:
+        self._alpha = max(0.45, min(1.0, float(alpha)))
+        self._font_size = max(12, min(42, int(font_size)))
+        try:
+            self.geometry(geometry)
+        except tk.TclError:
+            self.geometry("1000x150+160+650")
+        self.attributes("-alpha", self._alpha)
+        self.label.configure(font=("Segoe UI", self._font_size, "bold"))
+
+    def preferences(self) -> tuple[str, float, int]:
+        return self.geometry(), self._alpha, self._font_size

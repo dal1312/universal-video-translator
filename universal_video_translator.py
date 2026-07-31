@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-import os
-import sys
-
-if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w", encoding="utf-8")
-if sys.stderr is None:
-    sys.stderr = open(os.devnull, "w", encoding="utf-8")
-
-from uvt.gui import main
+from uvt.bootstrap import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

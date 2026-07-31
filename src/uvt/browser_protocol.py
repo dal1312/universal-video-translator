@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import UUID
 
 from .downloader import is_web_url
+from .paths import app_paths
 
 PROTOCOL = "uvt"
 TRANSLATE_ACTION = "translate"
@@ -234,9 +235,7 @@ def claim_browser_request(
 
 
 def browser_request_claim_directory() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    root = Path(local_app_data) if local_app_data else Path.home() / ".uvt"
-    return root / "UniversalVideoTranslator" / "browser-requests"
+    return app_paths().browser_requests
 
 
 def _validated_request_id(value: str) -> str:

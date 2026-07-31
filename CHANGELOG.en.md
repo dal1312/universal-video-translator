@@ -12,6 +12,12 @@
 - Audio routing follows the Chrome, Edge, or Firefox instance that started Overlay.
 - The extension requests no browser permissions and never retains tab IDs for cleanup after a restart.
 - Automatic startup is cancelled when VB-Cable or browser routing is unavailable; every setup failure restores browser audio.
+- A single desktop instance receives later extension clicks through authenticated local IPC.
+- Browser routing uses a persistent lease and is recovered automatically after a crash or forced termination.
+- Settings, cache, rotating logs, and application state now share `%LOCALAPPDATA%\UniversalVideoTranslator`.
+- Diagnostics omit URLs, cookies, transcripts, translations, and device names.
+- Windows installation and verification are fail-fast and validate Python, FFmpeg, Deno, Ollama, the model, and VB-Cable.
+- The build creates a portable release with licenses, provenance, per-file hashes, a deterministic ZIP, and an external checksum.
 
 ## 0.2.0 - 2026-07-30
 
