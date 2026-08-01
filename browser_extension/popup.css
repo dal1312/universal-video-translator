@@ -17,6 +17,8 @@ button { cursor: pointer; }
 button:hover { border-color: #5b8cff; }
 .primary { background: #5b8cff; border-color: #5b8cff; color: white; }
 .danger { color: #fb7185; }
+.quiet-danger { padding: 7px 10px; border-color: transparent; background: transparent; color: #93a0b4; font-size: 11px; }
+.quiet-danger:hover { color: #fb7185; border-color: #7f1d2d; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 #status { min-height: 18px; color: #93a0b4; font-size: 12px; padding-top: 4px; }
 .hint { padding-top: 10px; border-top: 1px solid #293548; }

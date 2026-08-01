@@ -70,3 +70,20 @@ def test_bridge_rejects_web_pages_and_invalid_commands() -> None:
         assert invalid.value.code == 400
     finally:
         bridge.close()
+
+
+def test_bridge_accepts_explicit_quit_command() -> None:
+    bridge = LocalBrowserBridge(port=0)
+    assert bridge.start()
+    try:
+        accepted, _response = _request(
+            bridge,
+            "/v1/command",
+            method="POST",
+            origin="chrome-extension://test-id",
+            payload={"command": "quit", "browser": "chrome"},
+        )
+        assert accepted == 202
+        assert bridge.drain_commands()[0].action == "quit"
+    finally:
+        bridge.close()

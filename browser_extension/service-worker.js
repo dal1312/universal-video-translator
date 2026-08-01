@@ -25,7 +25,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   lastLaunchAt = now;
-  const command = ["overlay", "stop", "focus"].includes(message.command)
+  const command = ["overlay", "stop", "focus", "quit"].includes(message.command)
     ? message.command
     : "focus";
   sendCommand(command, message.profile, now)
@@ -51,6 +51,10 @@ async function sendCommand(command, profile, now) {
     await setState({ status: "connected", command, profile: profile || null });
     return { ok: true, via: "bridge" };
   } catch (_bridgeError) {
+    if (command === "quit") {
+      await setState({ status: "idle", command });
+      return { ok: true, via: "offline" };
+    }
     return launchProtocol(command, profile, now);
   }
 }

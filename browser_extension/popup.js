@@ -23,7 +23,7 @@ async function command(name) {
     profile: profile.value,
   });
   status.textContent = response?.ok
-    ? response.via === "bridge" ? "Comando eseguito" : "Avvio UVT richiesto…"
+    ? name === "quit" ? "Chiusura UVT richiesta" : response.via === "bridge" ? "Comando eseguito" : "Avvio UVT richiesto…"
     : response?.error || "Errore";
   if (response?.via === "bridge") window.setTimeout(refreshStatus, 250);
 }
@@ -58,6 +58,7 @@ async function refreshStatus() {
 document.querySelector("#start").addEventListener("click", () => command("overlay"));
 document.querySelector("#focus").addEventListener("click", () => command("focus"));
 document.querySelector("#stop").addEventListener("click", () => command("stop"));
+document.querySelector("#quit").addEventListener("click", () => command("quit"));
 profile.addEventListener("change", () => chrome.storage.local.set({
   uvtState: { status: "configured", profile: profile.value, updatedAt: Date.now() },
 }));

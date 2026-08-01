@@ -10,7 +10,7 @@ from typing import Any
 
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 17321
-_ALLOWED_ACTIONS = {"overlay", "stop", "focus"}
+_ALLOWED_ACTIONS = {"overlay", "stop", "focus", "quit"}
 _ALLOWED_PROFILES = {"rapido", "bilanciato", "qualita"}
 _ALLOWED_BROWSERS = {"chrome", "edge", "firefox"}
 

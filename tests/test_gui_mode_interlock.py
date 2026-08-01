@@ -140,3 +140,33 @@ def test_stale_live_status_does_not_replace_file_status() -> None:
     window.status_var.set.assert_not_called()
     assert window.live is None
     window._restore_browser_audio.assert_called_once_with()
+
+
+def test_window_close_hides_an_active_session() -> None:
+    session = TranslationSession()
+    session.begin(SessionMode.LIVE)
+    window = SimpleNamespace(
+        session=session,
+        withdraw=Mock(),
+        status_var=Mock(),
+        _close=Mock(),
+    )
+
+    gui.TranslatorWindow._request_close(window)
+
+    window.withdraw.assert_called_once_with()
+    window._close.assert_not_called()
+
+
+def test_window_close_exits_when_idle() -> None:
+    window = SimpleNamespace(
+        session=TranslationSession(),
+        withdraw=Mock(),
+        status_var=Mock(),
+        _close=Mock(),
+    )
+
+    gui.TranslatorWindow._request_close(window)
+
+    window.withdraw.assert_not_called()
+    window._close.assert_called_once_with()

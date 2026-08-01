@@ -157,7 +157,7 @@ class TranslatorWindow(tk.Tk):
             self._load_capture_devices,
             name="uvt-audio-discovery",
         )
-        self.protocol("WM_DELETE_WINDOW", self._close)
+        self.protocol("WM_DELETE_WINDOW", self._request_close)
 
     def _start_worker(
         self,
@@ -946,6 +946,9 @@ class TranslatorWindow(tk.Tk):
             }
         )
         for command in bridge.drain_commands():
+            if command.action == "quit":
+                self._close()
+                return
             self._handle_browser_request(
                 BrowserRequest(
                     browser=command.browser,
@@ -1851,6 +1854,15 @@ class TranslatorWindow(tk.Tk):
     def _session_active(window, mode: SessionMode) -> bool:
         session = getattr(window, "session", None)
         return bool(session and session.mode is mode and session.busy)
+
+    def _request_close(self) -> None:
+        if self.session.busy:
+            self.withdraw()
+            self.status_var.set(
+                "UVT continua in background; riaprilo dall'estensione"
+            )
+            return
+        self._close()
 
     def _close(self) -> None:
         if self._closing:
