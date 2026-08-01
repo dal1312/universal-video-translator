@@ -7,6 +7,7 @@
 - Ponte locale autenticato tra popup e applicazione con stato, profilo e latenza in tempo reale.
 - Fallback `uvt://` utilizzato soltanto quando UVT non è ancora in esecuzione.
 - Protezione anti-ritardo che scarta i segmenti audio ormai obsoleti.
+- Sincronizzazione adattiva che accelera gradualmente la voce tradotta in base a coda e durata del parlato.
 - Modalità background con controlli nel popup e nell'area di notifica di Windows.
 - Arresto completo ripristina routing audio, thread e risorse locali.
 

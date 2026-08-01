@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from uvt.adaptive_sync import AdaptiveSyncController
 from uvt.latency import LatencyTracker
 from uvt.profiles import PROFILE_LABELS, profile_by_key, profile_key_from_label
 from uvt.vad import SpeechSegmenter
@@ -77,3 +78,21 @@ def test_latency_tracker_reports_current_and_median(tmp_path) -> None:
     assert result["current_ms"] == 290
     assert result["median_ms"] == 225
     assert tracker.export(tmp_path / "latency.json").is_file()
+
+
+def test_adaptive_sync_accelerates_smoothly_when_voice_falls_behind() -> None:
+    sync = AdaptiveSyncController(200)
+    normal = sync.next_rate(
+        queue_ms=0, text="Questa è una frase breve", source_duration_seconds=2
+    )
+    delayed = sync.next_rate(
+        queue_ms=4000,
+        text="Questa è una frase tradotta decisamente più lunga",
+        source_duration_seconds=1.5,
+    )
+    assert normal >= 200
+    assert delayed > normal
+    assert delayed <= 290
+    assert sync.offset_ms(
+        queue_ms=500, speech_ms=1800, source_duration_seconds=2
+    ) == 300

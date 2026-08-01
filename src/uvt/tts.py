@@ -17,6 +17,8 @@ class SpeechEngine(Protocol):
 
     def stop(self) -> None: ...
 
+    def set_rate(self, rate: int) -> None: ...
+
 
 class WindowsSpeech:
     def __init__(self, rate: int = 185, voice: str = "default") -> None:
@@ -44,6 +46,9 @@ class WindowsSpeech:
     def stop(self) -> None:
         self.engine.stop()
 
+    def set_rate(self, rate: int) -> None:
+        self.engine.setProperty("rate", max(80, min(360, int(rate))))
+
     def prewarm(self, _text: str) -> None:
         return
 
@@ -56,6 +61,9 @@ class SilentSpeech:
         return
 
     def stop(self) -> None:
+        return
+
+    def set_rate(self, _rate: int) -> None:
         return
 
     def prewarm(self, _text: str) -> None:
@@ -134,6 +142,9 @@ class KokoroSpeech:
 
     def stop(self) -> None:
         self._player = None
+
+    def set_rate(self, rate: int) -> None:
+        self.speed = max(0.65, min(1.65, int(rate) / 185))
 
 
 def create_speech_engine(

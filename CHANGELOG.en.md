@@ -7,6 +7,7 @@
 - Authenticated local bridge between popup and application with live state, profile, and latency.
 - `uvt://` is now only a fallback when UVT is not already running.
 - Latency guard discards obsolete queued audio segments.
+- Adaptive synchronization gradually accelerates translated speech using queue delay and source speech duration.
 - Background mode with controls in both the popup and Windows notification area.
 - Full exit restores audio routing, threads, and local resources.
 

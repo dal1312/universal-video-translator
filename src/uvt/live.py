@@ -12,6 +12,7 @@ from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
 from .cache import TranslationCache
+from .adaptive_sync import AdaptiveSyncController
 from .latency import LatencyTracker
 from .profiles import PerformanceProfile, profile_by_key
 from .tts import create_speech_engine
@@ -36,6 +37,7 @@ class _AudioPacket:
 class _SpeechItem:
     text: str
     queued_at: float
+    source_duration_seconds: float = 0.0
 
 
 class LiveCaptureError(RuntimeError):
@@ -154,6 +156,7 @@ class LiveTranslator:
         self.source_language = source_language
         self.profile: PerformanceProfile = profile_by_key(profile)
         self.rate = round(rate * self.profile.speech_rate_multiplier)
+        self._adaptive_sync = AdaptiveSyncController(self.rate)
         selected_chunk = (
             self.profile.max_segment_seconds
             if chunk_seconds is None
@@ -194,6 +197,7 @@ class LiveTranslator:
         self._audio_queue = queue.Queue(maxsize=self.profile.audio_queue_size)
         self._speech_queue = queue.Queue(maxsize=self.profile.speech_queue_size)
         self._spoken_history.clear()
+        self._adaptive_sync = AdaptiveSyncController(self.rate)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -324,12 +328,45 @@ class LiveTranslator:
                 text = speech_item.text
                 self._spoken_history.append(text)
                 queue_ms = (time.monotonic() - speech_item.queued_at) * 1000
-                self.on_metrics({"speech_queue_ms": round(queue_ms, 1)})
+                adaptive_rate = self._adaptive_sync.next_rate(
+                    queue_ms=queue_ms,
+                    text=text,
+                    source_duration_seconds=speech_item.source_duration_seconds,
+                )
+                set_rate = getattr(self._engine, "set_rate", None)
+                if set_rate is not None:
+                    set_rate(adaptive_rate)
+                self.on_metrics(
+                    {
+                        "speech_queue_ms": round(queue_ms, 1),
+                        "adaptive_rate": adaptive_rate,
+                        "adaptive_speed": round(
+                            self._adaptive_sync.multiplier, 2
+                        ),
+                    }
+                )
                 ducked = bool(
                     self.volume_ducker and self.volume_ducker.duck()
                 )
                 try:
+                    speech_started = time.monotonic()
                     self._engine.speak(text)
+                    speech_ms = (time.monotonic() - speech_started) * 1000
+                    self.on_metrics(
+                        {
+                            "speech_ms": round(speech_ms, 1),
+                            "sync_offset_ms": round(
+                                self._adaptive_sync.offset_ms(
+                                    queue_ms=queue_ms,
+                                    speech_ms=speech_ms,
+                                    source_duration_seconds=(
+                                        speech_item.source_duration_seconds
+                                    ),
+                                ),
+                                1,
+                            ),
+                        }
+                    )
                 finally:
                     if ducked:
                         self.volume_ducker.restore()
@@ -389,6 +426,7 @@ class LiveTranslator:
                     samples = audio.samples
                     capture_ms = audio.duration_seconds * 1000
                     queue_ms = (time.monotonic() - audio.ready_at) * 1000
+                    audio_ready_at = audio.ready_at
                     if queue_ms > self.profile.max_queue_delay_seconds * 1000:
                         dropped_segments += 1
                         self.on_metrics(
@@ -405,6 +443,7 @@ class LiveTranslator:
                     samples = audio
                     capture_ms = 0.0
                     queue_ms = 0.0
+                    audio_ready_at = time.monotonic()
                 mono = np.asarray(samples, dtype=np.float32)
                 if mono.ndim > 1:
                     mono = mono.mean(axis=1)
@@ -503,7 +542,11 @@ class LiveTranslator:
                 if self.speak:
                     put_latest(
                         self._speech_queue,
-                        _SpeechItem(translated, time.monotonic()),
+                        _SpeechItem(
+                            translated,
+                            audio_ready_at,
+                            capture_ms / 1000,
+                        ),
                     )
             self.on_status("Overlay OS interrotto")
         except Exception as exc:

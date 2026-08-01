@@ -760,7 +760,8 @@ class TranslatorWindow(tk.Tk):
         )
         self.latency_detail_var.set(
             "Acquisizione {capture:.0f}ms · Whisper {whisper:.0f}ms · "
-            "Traduzione {translation:.0f}ms · Code {queue:.0f}ms".format(
+            "Traduzione {translation:.0f}ms · Code {queue:.0f}ms · "
+            "Voce {speed:.2f}× · Scarto {offset:.0f}ms".format(
                 capture=float(self._latest_latency.get("capture_ms", 0.0)),
                 whisper=float(self._latest_latency.get("transcribe_ms", 0.0)),
                 translation=float(self._latest_latency.get("translate_ms", 0.0)),
@@ -770,6 +771,8 @@ class TranslatorWindow(tk.Tk):
                         self._latest_latency.get("queue_ms", 0.0),
                     )
                 ),
+                speed=float(self._latest_latency.get("adaptive_speed", 1.0)),
+                offset=float(self._latest_latency.get("sync_offset_ms", 0.0)),
             )
         )
 

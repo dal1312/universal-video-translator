@@ -72,7 +72,7 @@ Kokoro or Windows voice
 Synchronized player or export
 ```
 
-AI Overlay OS uses the same local translation and speech stack on real-time audio windows instead of a complete media file.
+AI Overlay OS uses the same local translation and speech stack on real-time audio windows instead of a complete media file. Adaptive synchronization gradually changes speech speed to recover delay without abrupt voice changes.
 
 ## Windows Requirements
 
