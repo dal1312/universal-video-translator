@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- Audio/video export moved out of the window into a dedicated controller, with progressive-player workers registered in the runtime supervisor for deterministic shutdown.
 - Document translation lifecycle extracted from the GUI into a dedicated controller with centralized cancellation and session state.
 - Tk layout extracted into a dedicated module, repeatable preflight, and parallel Ollama, Whisper, and speech warm-up to reduce the first Live response.
 - End-to-end Windows smoke test covering GUI construction, contextual settings, and complete shutdown.

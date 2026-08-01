@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import Mock
 
-from uvt.controllers import DocumentTranslationController
+from uvt.controllers import (
+    DocumentTranslationController,
+    MediaExportController,
+)
 from uvt.session import SessionMode, SessionPhase, TranslationSession
 
 
@@ -47,3 +50,36 @@ def test_document_controller_cancels_and_finishes_session() -> None:
     assert session.phase is SessionPhase.STOPPING
     controller.finish()
     assert session.phase is SessionPhase.IDLE
+
+
+def test_media_export_controller_delegates_audio_and_video(
+    tmp_path: Path,
+) -> None:
+    workflow = Mock()
+    audio = tmp_path / "voice.wav"
+    video = tmp_path / "dubbed.mp4"
+    workflow.export_audio.return_value = audio
+    workflow.export_video.return_value = video
+    controller = MediaExportController(workflow)
+    settings = Mock()
+    progress = Mock()
+    warning = Mock()
+
+    assert controller.export_audio(
+        audio, settings, on_progress=progress, on_warning=warning
+    ) == audio
+    assert controller.export_video(
+        video, settings, on_progress=progress, on_warning=warning
+    ) == video
+    workflow.export_audio.assert_called_once_with(
+        audio,
+        settings,
+        on_progress=progress,
+        on_warning=warning,
+    )
+    workflow.export_video.assert_called_once_with(
+        video,
+        settings,
+        on_progress=progress,
+        on_warning=warning,
+    )

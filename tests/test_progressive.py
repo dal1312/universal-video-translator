@@ -1,5 +1,6 @@
 from pathlib import Path
 import threading
+from unittest.mock import Mock
 
 import numpy as np
 
@@ -254,3 +255,34 @@ def test_progressive_stop_unblocks_empty_audio_queue(tmp_path: Path) -> None:
 
     assert player.stop(timeout=1.0)
     assert not writer.is_alive()
+
+
+def test_progressive_workers_are_owned_by_runtime(tmp_path: Path) -> None:
+    player = ProgressiveDubPlayer(
+        media=tmp_path / "video.mp4",
+        cues=[],
+        preview=Preview(),  # type: ignore[arg-type]
+        translator=Translator(),  # type: ignore[arg-type]
+        cache=Cache(),  # type: ignore[arg-type]
+    )
+    release = threading.Event()
+    player._write_audio = release.wait  # type: ignore[method-assign]
+    player._produce = release.wait  # type: ignore[method-assign]
+    player._show_text = release.wait  # type: ignore[method-assign]
+    player._monitor_player = release.wait  # type: ignore[method-assign]
+    player._engine = Engine()
+    player.preview.open_pcm_stream = Mock()  # type: ignore[attr-defined]
+
+    player.start()
+
+    assert len(player._runtime.active_workers) == 4
+    assert {worker.name for worker in player._runtime.active_workers} == {
+        "uvt-progressive-writer",
+        "uvt-progressive-producer",
+        "uvt-progressive-text",
+        "uvt-progressive-monitor",
+    }
+    release.set()
+    assert player.stop(timeout=1.0)
+    assert player._runtime.closing
+    assert not player._runtime.active_workers

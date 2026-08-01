@@ -109,7 +109,6 @@ def test_late_file_preparation_is_discarded() -> None:
         session=TranslationSession(run_id=2),
         _closing=False,
         _file_run_id=2,
-        _discard_prepared=gui.TranslatorWindow._discard_prepared,
         _call_in_ui=Mock(),
     )
     window.file_controller = FileTranslationController(

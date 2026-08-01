@@ -19,7 +19,7 @@ Status: **PASS - SOURCE, FULL PREFLIGHT, GUI SMOKE, PACKAGE, CHECKSUM, AND SINGL
 ## Automated Verification
 
 ```text
-180 passed in 6.96s
+184 passed in 6.95s
 ```
 
 Additional checks:
@@ -32,6 +32,7 @@ Additional checks:
 - source GUI smoke (`scripts/windows/smoke_gui.py`): PASS
 - contextual settings open/close and deterministic GUI shutdown: PASS
 - parallel Ollama, Whisper, and speech warm-up tests: PASS
+- media export controller and progressive worker ownership tests: PASS
 - project, Python package, and extension version agreement: PASS
 - deterministic package metadata tests: PASS
 

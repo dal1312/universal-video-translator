@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from .cache import TranslationCache
 from .media_player import MediaPreview
+from .runtime import RuntimeSupervisor
 from .subtitles import Cue
 from .tts import create_speech_engine
 
@@ -72,6 +73,7 @@ class ProgressiveDubPlayer:
         self._writer: threading.Thread | None = None
         self._text_thread: threading.Thread | None = None
         self._monitor: threading.Thread | None = None
+        self._runtime = RuntimeSupervisor()
 
     @property
     def running(self) -> bool:
@@ -111,20 +113,26 @@ class ProgressiveDubPlayer:
     def start(self) -> None:
         if self.running:
             return
+        if self._runtime.closing:
+            self._runtime = RuntimeSupervisor()
         if self._engine is None:
             self.prepare()
         for chunk in self._initial:
             self._queue.put(chunk)
         self._initial.clear()
         self._stream = self.preview.open_pcm_stream(self.media, SAMPLE_RATE)
-        self._writer = threading.Thread(target=self._write_audio, daemon=True)
-        self._producer = threading.Thread(target=self._produce, daemon=True)
-        self._text_thread = threading.Thread(target=self._show_text, daemon=True)
-        self._monitor = threading.Thread(target=self._monitor_player, daemon=True)
-        self._writer.start()
-        self._producer.start()
-        self._text_thread.start()
-        self._monitor.start()
+        self._writer = self._runtime.start(
+            self._write_audio, name="uvt-progressive-writer"
+        )
+        self._producer = self._runtime.start(
+            self._produce, name="uvt-progressive-producer"
+        )
+        self._text_thread = self._runtime.start(
+            self._show_text, name="uvt-progressive-text"
+        )
+        self._monitor = self._runtime.start(
+            self._monitor_player, name="uvt-progressive-monitor"
+        )
         self.on_status("Riproduzione con buffer")
 
     def toggle_pause(self) -> bool:
@@ -141,6 +149,7 @@ class ProgressiveDubPlayer:
     def stop(self, timeout: float = 3.0) -> bool:
         self._stop.set()
         self._pause.clear()
+        self._runtime.begin_shutdown()
         try:
             self._queue.put_nowait(_END)
         except queue.Full:

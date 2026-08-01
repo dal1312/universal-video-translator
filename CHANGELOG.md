@@ -4,6 +4,7 @@
 
 ## Non rilasciato
 
+- Export audio/video separato dalla finestra in un controller dedicato e worker del player progressivo registrati nel supervisore runtime per uno shutdown deterministico.
 - Lifecycle della traduzione documenti estratto dalla GUI in un controller dedicato con cancellazione e stato di sessione centralizzati.
 - Layout Tk estratto in un modulo dedicato, preflight rilanciabile e warm-up parallelo di Ollama, Whisper e sintesi vocale per ridurre la prima risposta Live.
 - Smoke test Windows end-to-end per costruzione GUI, pannello contestuale e shutdown completo.

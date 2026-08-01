@@ -34,6 +34,7 @@ from .controllers import (
     DocumentTranslationController,
     FileTranslationController,
     LiveTranslationController,
+    MediaExportController,
 )
 from .diagnostics import log_exception, logger
 from .documents import (
@@ -125,6 +126,7 @@ class TranslatorWindow(tk.Tk):
         self.file_controller = FileTranslationController(
             self.session, self.workflow
         )
+        self.export_controller = MediaExportController(self.workflow)
         self.live_controller = LiveTranslationController(self.session)
         self.document_controller = DocumentTranslationController(self.session)
         self.browser_audio_controller = BrowserAudioController(
@@ -826,12 +828,6 @@ class TranslatorWindow(tk.Tk):
             self._call_in_ui(self._show_error, exc)
             self._call_in_ui(self._reset_controls)
 
-    @staticmethod
-    def _discard_prepared(prepared: PreparedPlayback) -> None:
-        for playback in (prepared.progressive, prepared.player):
-            if playback:
-                playback.stop()
-
     def _begin_playback(
         self, prepared: PreparedPlayback, run_id: int
     ) -> None:
@@ -893,7 +889,7 @@ class TranslatorWindow(tk.Tk):
 
     def _run_export(self, destination: str, settings: RunSettings) -> None:
         try:
-            output = self.workflow.export_audio(
+            output = self.export_controller.export_audio(
                 destination,
                 settings,
                 on_progress=lambda current, total: self._call_in_ui(
@@ -940,7 +936,7 @@ class TranslatorWindow(tk.Tk):
         self, destination: Path, settings: RunSettings
     ) -> None:
         try:
-            output = self.workflow.export_video(
+            output = self.export_controller.export_video(
                 destination,
                 settings,
                 on_progress=lambda current, total: self._call_in_ui(

@@ -55,6 +55,43 @@ class FileTranslationController:
                 playback.stop()
 
 
+class MediaExportController:
+    """Run media exports without coupling application logic to Tk widgets."""
+
+    def __init__(self, workflow: TranslationWorkflow) -> None:
+        self.workflow = workflow
+
+    def export_audio(
+        self,
+        destination: str | Path,
+        settings: RunSettings,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+        on_warning: Callable[[str], None] | None = None,
+    ) -> Path:
+        return self.workflow.export_audio(
+            destination,
+            settings,
+            on_progress=on_progress,
+            on_warning=on_warning,
+        )
+
+    def export_video(
+        self,
+        destination: str | Path,
+        settings: RunSettings,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+        on_warning: Callable[[str], None] | None = None,
+    ) -> Path:
+        return self.workflow.export_video(
+            Path(destination),
+            settings,
+            on_progress=on_progress,
+            on_warning=on_warning,
+        )
+
+
 class LiveTranslationController:
     def __init__(self, session: TranslationSession) -> None:
         self.session = session
