@@ -9,6 +9,8 @@
 - Protezione anti-ritardo che scarta i segmenti audio ormai obsoleti.
 - Sincronizzazione adattiva che accelera gradualmente la voce tradotta in base a coda e durata del parlato.
 - Modalità background con controlli nel popup e nell'area di notifica di Windows.
+- Aggiornamenti automatici verificati tramite SHA-256 e sincronizzazione della versione dell'estensione.
+- Tasti rapidi globali per sessione, overlay e volume di sistema.
 - Arresto completo ripristina routing audio, thread e risorse locali.
 
 ## 0.2.1 - 2026-07-31

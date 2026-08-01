@@ -142,6 +142,9 @@ Comportamento previsto in v0.2.1:
 - il popup mostra connessione, sessione e latenza reali e permette di scegliere il profilo e inviare avvia, porta in primo piano e stop;
 - durante una sessione, chiudere la finestra principale lascia UVT attivo in background; **Esci completamente da UVT** nel popup arresta e chiude il processo;
 - l'icona UVT nell'area di notifica offre **Apri**, **Stop AI Overlay** ed **Esci completamente**;
+- aggiornamenti portatili scaricati automaticamente dalle release ufficiali, verificati con SHA-256 e applicati alla chiusura;
+- l'estensione si ricarica automaticamente quando rileva una nuova versione dell'app;
+- tasti globali: `Ctrl+Alt+F8` avvia/ferma, `Ctrl+Alt+F9` ferma, `Ctrl+Alt+F10` mostra/nasconde l'overlay, `Ctrl+Alt+Su/Giù` regola il volume;
 - **Avvia** mantiene selezionato il video e lascia UVT in background; solo **Apri UVT** porta avanti la finestra desktop;
 - se UVT e' gia' aperto, la richiesta viene inoltrata alla finestra esistente.
 

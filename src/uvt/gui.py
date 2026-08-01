@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from . import __version__
 from .audio_routing import (
     AudioRoutingLeaseManager,
     AudioRoutingError,
@@ -34,6 +35,7 @@ from .controllers import (
     LiveTranslationController,
 )
 from .diagnostics import log_exception, logger
+from .hotkeys import GlobalHotkeys, change_system_volume
 from .live import (
     LiveTranslator,
     capture_device_names,
@@ -50,6 +52,7 @@ from .session import SessionMode, TranslationSession
 from .settings import AppSettings, SettingsStore
 from .tts import KOKORO_VOICES, windows_voice_names
 from .tray import TrayController
+from .updates import AutomaticUpdater, UpdateResult, launch_pending_update
 from .workflow import PreparedPlayback, RunSettings, TranslationWorkflow
 
 
@@ -85,6 +88,7 @@ class TranslatorWindow(tk.Tk):
         self._instance_broker = instance_broker
         self._browser_bridge = browser_bridge
         self._browser_bridge_poll_job: str | None = None
+        self._hotkey_poll_job: str | None = None
         self._instance_poll_job: str | None = None
         self._settings_save_job: str | None = None
         self._closing = False
@@ -140,6 +144,7 @@ class TranslatorWindow(tk.Tk):
         self.latency_var = tk.StringVar(value="Latenza: in attesa")
         self.latency_detail_var = tk.StringVar(value="")
         self._latest_latency: dict[str, float | int] = {}
+        self._update_status = "checking"
         self.status_var = tk.StringVar(value="Pronto")
         self.dark_mode = saved.dark_mode
         self.advanced_visible = saved.advanced_visible
@@ -166,6 +171,11 @@ class TranslatorWindow(tk.Tk):
             on_quit=lambda: self.after(0, self._close),
         )
         self._tray.start()
+        self._hotkeys = GlobalHotkeys()
+        if self._hotkeys.start():
+            self._schedule_hotkey_poll()
+        self._updater = AutomaticUpdater(__version__)
+        self._start_worker(self._check_updates, name="uvt-update-check")
 
     def _start_worker(
         self,
@@ -954,6 +964,8 @@ class TranslatorWindow(tk.Tk):
                 "voice": bool(self.live_voice_var.get()),
                 "auto_ducking": bool(self.auto_ducking_var.get()),
                 "latency": dict(self._latest_latency),
+                "app_version": __version__,
+                "update_status": self._update_status,
             }
         )
         for command in bridge.drain_commands():
@@ -968,6 +980,47 @@ class TranslatorWindow(tk.Tk):
                 )
             )
         self._schedule_browser_bridge_poll()
+
+    def _schedule_hotkey_poll(self) -> None:
+        if self._closing:
+            return
+        self._hotkey_poll_job = self.after(120, self._poll_hotkeys)
+
+    def _poll_hotkeys(self) -> None:
+        self._hotkey_poll_job = None
+        if self._closing:
+            return
+        hotkeys = getattr(self, "_hotkeys", None)
+        for command in hotkeys.drain() if hotkeys is not None else ():
+            if command == "toggle":
+                self._toggle_live()
+            elif command == "stop":
+                self._stop_from_tray()
+            elif command == "overlay":
+                self._toggle_overlay()
+            elif command == "volume_up":
+                change_system_volume(1)
+            elif command == "volume_down":
+                change_system_volume(-1)
+        self._schedule_hotkey_poll()
+
+    def _check_updates(self) -> None:
+        try:
+            result = self._updater.check_and_stage()
+        except Exception as error:
+            logger("updates").warning("event=update_check_failed error=%s", error)
+            result = UpdateResult(
+                "error", message="Controllo aggiornamenti fallito"
+            )
+        self._call_in_ui(self._set_update_result, result)
+
+    def _set_update_result(self, result: UpdateResult) -> None:
+        self._update_status = result.status
+        if result.status in {"available", "staged"}:
+            self.status_var.set(result.message)
+            tray = getattr(self, "_tray", None)
+            if tray is not None:
+                tray.notify(result.message)
 
     def _handle_instance_event(self, event: InstanceEvent) -> None:
         if event.command == "focus":
@@ -1903,11 +1956,15 @@ class TranslatorWindow(tk.Tk):
         tray = getattr(self, "_tray", None)
         if tray is not None:
             tray.close()
+        hotkeys = getattr(self, "_hotkeys", None)
+        if hotkeys is not None:
+            hotkeys.close()
         if self._instance_broker is not None:
             self._instance_broker.begin_shutdown()
         for job in (
             self._instance_poll_job,
             self._browser_bridge_poll_job,
+            self._hotkey_poll_job,
             self._settings_save_job,
         ):
             if job:
@@ -1917,6 +1974,7 @@ class TranslatorWindow(tk.Tk):
                     pass
         self._instance_poll_job = None
         self._browser_bridge_poll_job = None
+        self._hotkey_poll_job = None
         self._settings_save_job = None
         if self._browser_bridge is not None:
             self._browser_bridge.close()
@@ -1965,6 +2023,7 @@ class TranslatorWindow(tk.Tk):
             logger("shutdown").warning(
                 "event=shutdown_partial failures=%s", ",".join(failures)
             )
+        launch_pending_update()
         self.destroy()
 
 

@@ -36,6 +36,10 @@ class AppPaths:
     def instance_state(self) -> Path:
         return self.root / "instance"
 
+    @property
+    def updates(self) -> Path:
+        return self.root / "updates"
+
 
 def default_app_root() -> Path:
     local_app_data = os.environ.get("LOCALAPPDATA")

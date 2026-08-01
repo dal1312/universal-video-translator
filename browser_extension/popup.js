@@ -36,6 +36,7 @@ async function refreshStatus() {
     });
     if (!response.ok) throw new Error("offline");
     const state = await response.json();
+    await maybeReloadExtension(state.app_version);
     connection.textContent = "UVT connesso";
     connectionDot.classList.add("online");
     session.textContent = state.running ? "AI Overlay attivo" : "UVT pronto";
@@ -55,6 +56,15 @@ async function refreshStatus() {
     latency.textContent = "Latenza: —";
     details.textContent = "";
   }
+}
+
+async function maybeReloadExtension(appVersion) {
+  const extensionVersion = chrome.runtime.getManifest().version;
+  if (!appVersion || appVersion === extensionVersion) return;
+  const { uvtReloadAttemptVersion } = await chrome.storage.local.get("uvtReloadAttemptVersion");
+  if (uvtReloadAttemptVersion === appVersion) return;
+  await chrome.storage.local.set({ uvtReloadAttemptVersion: appVersion });
+  chrome.runtime.reload();
 }
 
 document.querySelector("#start").addEventListener("click", () => command("overlay"));
