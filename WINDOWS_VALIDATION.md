@@ -75,11 +75,11 @@ Executable:
 dist-browser-v0.2-release\UniversalVideoTranslator\UniversalVideoTranslator.exe
 ```
 
-Executable size: `50,490,570` bytes
+Executable size: `52,713,775` bytes
 Executable SHA256:
 
 ```text
-3E84FBAD8F7243D239BED7CF319C48216675731BE39C5742CA4038C89237909B
+08907B1E6127AC6C4C8C40E92926A7931B4A420965360AC31B2D9842F50DEF88
 ```
 
 ## Portable Release
@@ -90,21 +90,22 @@ Artifact:
 release\UniversalVideoTranslator-0.2.1-windows-x86_64.zip
 ```
 
-ZIP size: `600,463,218` bytes
+ZIP size: `611,819,326` bytes
 ZIP SHA256:
 
 ```text
-2721EC10E06F1FF7AFB24C538B52E72655A27CD9F2C33AB0A80178068125E67D
+0D5E9D581C0E7CB522E994BE51B55E3BA626C29051FA9D3E70C3AECE201BAB06
 ```
 
 Payload contents:
 
-- 18,380 files
-- 1,732,435,286 unpacked bytes
+- 18,762 files
+- 1,754,435,461 unpacked bytes
 - Italian and English README/changelog
 - Apache 2.0 project license
 - third-party notices and FFmpeg/SoundVolumeView license material
 - deterministic `PROVENANCE.json`
+- controlled local benchmark report (`WINDOWS_BENCHMARK.json`)
 - sorted per-file `SHA256SUMS.txt`
 - `VERIFY_RELEASE_WINDOWS.ps1`
 - external ZIP checksum sidecar
@@ -113,6 +114,6 @@ Payload contents:
 
 ## Release Qualification Note
 
-This validation artifact was generated from commit `afe87234bd3310d0b46fa677639786297320034e` with the current improvements still present as uncommitted worktree changes. `PROVENANCE.json` therefore correctly records `dirty: true`.
+This validation artifact was generated from commit `226c5f9514732a3ee1bd6b2832c8437e09d57efc`. `PROVENANCE.json` records `dirty: true` only because the local, deliberately untracked `assets/models/` directory was present; the packaged source code matches that commit.
 
 The artifact is suitable for local acceptance testing. The standard release command now rejects dirty or untagged source by default. A local acceptance build must opt in with `Build-Release.ps1 -AllowDirty`; optional Authenticode signing can be enabled explicitly for the final clean/tagged build.
