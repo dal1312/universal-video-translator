@@ -1,4 +1,5 @@
 const MIN_LAUNCH_INTERVAL_MS = 1500;
+const BRIDGE_COMMAND_URL = "http://127.0.0.1:17321/v1/command";
 let lastLaunchAt = 0;
 
 function browserName() {
@@ -27,25 +28,46 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const command = ["overlay", "stop", "focus"].includes(message.command)
     ? message.command
     : "focus";
-  const query = new URLSearchParams({
-    browser: browserName(),
-    requested_at: String(Math.floor(now / 1000)),
-    request_id: crypto.randomUUID(),
-  });
-  if (command === "overlay" && ["rapido", "bilanciato", "qualita"].includes(message.profile)) {
-    query.set("profile", message.profile);
-  }
-  const target = `uvt://${command}?${query.toString()}`;
-  // Keep the video selected: the protocol launcher stays in background while
-  // UVT handles the command locally.
-  chrome.tabs.create({ url: target, active: false })
-    .then(async () => {
-      await setState({ status: "requested", command, profile: message.profile || null });
-      sendResponse({ ok: true });
-    })
+  sendCommand(command, message.profile, now)
+    .then(sendResponse)
     .catch(async (error) => {
       await setState({ status: "error", command, message: String(error) });
       sendResponse({ ok: false, error: String(error) });
     });
   return true;
 });
+
+async function sendCommand(command, profile, now) {
+  try {
+    const response = await fetch(BRIDGE_COMMAND_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-UVT-Client": "uvt-extension-v1",
+      },
+      body: JSON.stringify({ command, profile, browser: browserName() }),
+    });
+    if (!response.ok) throw new Error(`UVT bridge: HTTP ${response.status}`);
+    await setState({ status: "connected", command, profile: profile || null });
+    return { ok: true, via: "bridge" };
+  } catch (_bridgeError) {
+    return launchProtocol(command, profile, now);
+  }
+}
+
+async function launchProtocol(command, profile, now) {
+  const query = new URLSearchParams({
+    browser: browserName(),
+    requested_at: String(Math.floor(now / 1000)),
+    request_id: crypto.randomUUID(),
+  });
+  if (command === "overlay" && ["rapido", "bilanciato", "qualita"].includes(profile)) {
+    query.set("profile", profile);
+  }
+  const target = `uvt://${command}?${query.toString()}`;
+  // Keep the video selected: the protocol launcher stays in background while
+  // UVT handles the command locally.
+  await chrome.tabs.create({ url: target, active: false });
+  await setState({ status: "requested", command, profile: profile || null });
+  return { ok: true, via: "protocol" };
+}

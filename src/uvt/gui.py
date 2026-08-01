@@ -15,6 +15,7 @@ from .audio_routing import (
     AudioRoutingError,
 )
 from .browser_protocol import (
+    BrowserRequest,
     BrowserProtocolError,
     FOCUS_ACTION,
     OVERLAY_ACTION,
@@ -25,6 +26,7 @@ from .browser_protocol import (
     parse_browser_request,
     register_protocol,
 )
+from .browser_bridge import LocalBrowserBridge
 from .cache import TranslationCache
 from .controllers import (
     BrowserAudioController,
@@ -59,6 +61,7 @@ class TranslatorWindow(tk.Tk):
         audio_router: AudioRoutingLeaseManager | None = None,
         settings_store: SettingsStore | None = None,
         instance_broker: SingleInstanceBroker | None = None,
+        browser_bridge: LocalBrowserBridge | None = None,
     ) -> None:
         self._settings_store = settings_store or SettingsStore()
         saved = self._settings_store.load()
@@ -79,6 +82,8 @@ class TranslatorWindow(tk.Tk):
         self._browser_audio_routed: str | None = None
         self._audio_router = audio_router or AudioRoutingLeaseManager()
         self._instance_broker = instance_broker
+        self._browser_bridge = browser_bridge
+        self._browser_bridge_poll_job: str | None = None
         self._instance_poll_job: str | None = None
         self._settings_save_job: str | None = None
         self._closing = False
@@ -142,6 +147,8 @@ class TranslatorWindow(tk.Tk):
         self._bind_settings_persistence()
         if self._instance_broker is not None:
             self._schedule_instance_poll()
+        if self._browser_bridge is not None:
+            self._schedule_browser_bridge_poll()
         if auto_start_overlay:
             self.iconify()
             self.after_idle(self._show_browser_overlay, False)
@@ -912,6 +919,41 @@ class TranslatorWindow(tk.Tk):
         for event in broker.drain_events():
             self._handle_instance_event(event)
         self._schedule_instance_poll()
+
+    def _schedule_browser_bridge_poll(self) -> None:
+        if self._closing or self._browser_bridge is None:
+            return
+        self._browser_bridge_poll_job = self.after(
+            150, self._poll_browser_bridge
+        )
+
+    def _poll_browser_bridge(self) -> None:
+        self._browser_bridge_poll_job = None
+        bridge = self._browser_bridge
+        if self._closing or bridge is None:
+            return
+        bridge.update_state(
+            {
+                "mode": self.session.mode.value if self.session.mode else None,
+                "phase": self.session.phase.value,
+                "running": self.session.busy,
+                "profile": profile_key_from_label(self.profile_var.get()),
+                "browser": self._routing_browser(),
+                "capture_device": self.capture_device_var.get(),
+                "voice": bool(self.live_voice_var.get()),
+                "auto_ducking": bool(self.auto_ducking_var.get()),
+                "latency": dict(self._latest_latency),
+            }
+        )
+        for command in bridge.drain_commands():
+            self._handle_browser_request(
+                BrowserRequest(
+                    browser=command.browser,
+                    action=command.action,
+                    profile=command.profile,
+                )
+            )
+        self._schedule_browser_bridge_poll()
 
     def _handle_instance_event(self, event: InstanceEvent) -> None:
         if event.command == "focus":
@@ -1816,14 +1858,21 @@ class TranslatorWindow(tk.Tk):
         self._closing = True
         if self._instance_broker is not None:
             self._instance_broker.begin_shutdown()
-        for job in (self._instance_poll_job, self._settings_save_job):
+        for job in (
+            self._instance_poll_job,
+            self._browser_bridge_poll_job,
+            self._settings_save_job,
+        ):
             if job:
                 try:
                     self.after_cancel(job)
                 except tk.TclError:
                     pass
         self._instance_poll_job = None
+        self._browser_bridge_poll_job = None
         self._settings_save_job = None
+        if self._browser_bridge is not None:
+            self._browser_bridge.close()
         failures: list[str] = []
         for name, action in (
             ("progressive", self.progressive.stop if self.progressive else None),
@@ -1878,6 +1927,7 @@ def main(
     broker: SingleInstanceBroker | None = None,
     audio_router: AudioRoutingLeaseManager | None = None,
     settings_store: SettingsStore | None = None,
+    browser_bridge: LocalBrowserBridge | None = None,
 ) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     request = None
@@ -1893,6 +1943,7 @@ def main(
             startup_error = error
     instance = broker or SingleInstanceBroker()
     router = audio_router or AudioRoutingLeaseManager()
+    bridge = browser_bridge or LocalBrowserBridge()
     try:
         if not instance.acquire():
             if request is not None:
@@ -1919,6 +1970,9 @@ def main(
             initial_browser = request.browser
             auto_start_overlay = request.action == OVERLAY_ACTION
         instance.activate()
+        if not bridge.start():
+            logger("browser_bridge").warning("event=bridge_start_failed")
+            bridge = None
         try:
             recovered = router.recover()
             if recovered:
@@ -1933,6 +1987,7 @@ def main(
             audio_router=router,
             settings_store=settings_store,
             instance_broker=instance,
+            browser_bridge=bridge,
         )
         if startup_error:
             window.after_idle(
@@ -1948,6 +2003,8 @@ def main(
         log_exception("ipc", "instance_forward_failed", error)
         return 1
     finally:
+        if bridge is not None:
+            bridge.close()
         instance.close()
 
 

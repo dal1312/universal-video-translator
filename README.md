@@ -139,7 +139,7 @@ Comportamento previsto in v0.2.1:
 - il click non compila **Video e file**;
 - il click non avvia yt-dlp e non scarica il video;
 - il click seleziona **AI Overlay OS**, attende VB-Cable e avvia la traduzione live;
-- il popup permette di scegliere il profilo e inviare i comandi avvia, porta in primo piano e stop;
+- il popup mostra connessione, sessione e latenza reali e permette di scegliere il profilo e inviare avvia, porta in primo piano e stop;
 - **Avvia** mantiene selezionato il video e lascia UVT in background; solo **Apri UVT** porta avanti la finestra desktop;
 - se UVT e' gia' aperto, la richiesta viene inoltrata alla finestra esistente.
 
@@ -149,8 +149,8 @@ Se dopo un aggiornamento il click inserisce ancora un link in **Video e file**, 
 
 UVT e' progettato per uso locale.
 
-- L'estensione usa solo `storage` per ricordare profilo e ultimo comando richiesto.
-- L'estensione non ha content script, host permissions, cookie access, history access o analytics.
+- L'estensione usa `storage` e l'accesso limitato a `http://127.0.0.1:17321/*` per comunicare esclusivamente con UVT sul PC.
+- L'estensione non ha content script, accesso a cookie o cronologia, né analytics; non legge l'URL o il contenuto della scheda.
 - Il protocollo `uvt://` trasporta comando, browser, profilo opzionale, timestamp e ID casuale monouso.
 - Le richieste duplicate, vecchie o gia' usate vengono ignorate.
 - I marker anti-replay non contengono URL e vengono puliti al successivo utilizzo.
