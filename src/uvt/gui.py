@@ -41,6 +41,7 @@ from .documents import (
     DocumentTranslator,
     default_document_destination,
 )
+from .error_messages import present_error
 from .hotkeys import GlobalHotkeys, change_system_volume
 from .glossary import TranslationGlossary
 from .live import (
@@ -1223,7 +1224,7 @@ class TranslatorWindow(tk.Tk):
                 )
             os.startfile(extension)
         except (BrowserProtocolError, OSError) as error:
-            messagebox.showerror("Collegamento browser", str(error))
+            self._show_error(error)
             return
         messagebox.showinfo(
             "Collegamento browser",
@@ -1313,7 +1314,7 @@ class TranslatorWindow(tk.Tk):
             if isinstance(error, DocumentTranslationError) and self._document_cancel.is_set():
                 self.status_var.set("Traduzione documento interrotta")
             else:
-                messagebox.showerror("Documenti", str(error))
+                self._show_error(error)
                 self.status_var.set("Errore traduzione documento")
             return
         self.status_var.set(f"Documento tradotto: {result}")
@@ -1799,9 +1800,7 @@ class TranslatorWindow(tk.Tk):
                 else "normal"
             )
         )
-        self.status_var.set(
-            "Rilevamento audio non riuscito. Consulta il log diagnostico e riprova."
-        )
+        self.status_var.set(present_error(error).problem)
 
     def _apply_capture_devices(self, values: tuple[str, ...]) -> None:
         self._capture_devices_loaded = True
@@ -1858,7 +1857,9 @@ class TranslatorWindow(tk.Tk):
         self.output.configure(state="disabled")
 
     def _show_error(self, error: Exception) -> None:
-        messagebox.showerror("Errore", str(error))
+        log_exception("ui", "operation_failed", error)
+        presentation = present_error(error)
+        messagebox.showerror(presentation.title, presentation.message)
 
     def _reset_controls(self) -> None:
         self.session.finish(SessionMode.FILE)

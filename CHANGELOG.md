@@ -4,6 +4,7 @@
 
 ## Non rilasciato
 
+- Errori operativi centralizzati in messaggi azionabili che indicano problema e correzione senza esporre dettagli interni.
 - Visual system estratto dalla finestra principale e selezione automatica di un modello Ollama installato quando quello salvato non è disponibile.
 - Pannello impostazioni contestuale, chiuso all'avvio, con rilevamento automatico dei componenti e fallback alla voce Windows quando Kokoro non è disponibile.
 - Supervisore runtime centralizzato per worker e arresto coordinato delle risorse multimediali.
