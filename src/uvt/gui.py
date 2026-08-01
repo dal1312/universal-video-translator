@@ -1869,7 +1869,7 @@ class TranslatorWindow(tk.Tk):
             self.status_var.set(
                 "UVT continua in background; riaprilo dall'estensione"
             )
-            if not self._background_notice_shown:
+            if not getattr(self, "_background_notice_shown", False):
                 tray = getattr(self, "_tray", None)
                 if tray is not None:
                     tray.notify(
