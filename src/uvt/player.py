@@ -63,7 +63,9 @@ class SubtitlePlayer:
     def _translate(self, text: str, position: int | None = None) -> str:
         try:
             translated = self.cache.get(
-                self.translator.model, self.source_language, text
+                getattr(self.translator, "cache_key", self.translator.model),
+                self.source_language,
+                text,
             )
         except Exception as exc:
             translated = None
@@ -106,7 +108,7 @@ class SubtitlePlayer:
 
         try:
             self.cache.put(
-                self.translator.model,
+                getattr(self.translator, "cache_key", self.translator.model),
                 self.source_language,
                 text,
                 translated,

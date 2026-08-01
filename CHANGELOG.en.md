@@ -11,6 +11,7 @@
 - Background mode with controls in both the popup and Windows notification area.
 - SHA-256-verified automatic updates and browser-extension version synchronization.
 - Global shortcuts for session control, overlay visibility, and system volume.
+- Local mandatory-term glossary with automatic reload and revision-aware translation cache.
 - Full exit restores audio routing, threads, and local resources.
 
 ## 0.2.1 - 2026-07-31

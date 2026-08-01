@@ -82,7 +82,9 @@ def export_italian_audio(
                 continue
             try:
                 translated = cache.get(
-                    translator.model, source_language, cue.text
+                    getattr(translator, "cache_key", translator.model),
+                    source_language,
+                    cue.text,
                 )
             except Exception:
                 translated = None
@@ -124,7 +126,7 @@ def export_italian_audio(
                 cache.put_many(
                     [
                         (
-                            translator.model,
+                            getattr(translator, "cache_key", translator.model),
                             source_language,
                             text,
                             translated,

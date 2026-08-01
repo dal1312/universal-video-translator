@@ -257,7 +257,9 @@ class ProgressiveDubPlayer:
                 continue
             try:
                 translated = self.cache.get(
-                    self.translator.model, self.source_language, cue.text
+                    getattr(self.translator, "cache_key", self.translator.model),
+                    self.source_language,
+                    cue.text,
                 )
             except Exception as exc:
                 translated = None
@@ -305,7 +307,11 @@ class ProgressiveDubPlayer:
                 self.cache.put_many(
                     [
                         (
-                            self.translator.model,
+                            getattr(
+                                self.translator,
+                                "cache_key",
+                                self.translator.model,
+                            ),
                             self.source_language,
                             text,
                             translated,

@@ -36,6 +36,7 @@ from .controllers import (
 )
 from .diagnostics import log_exception, logger
 from .hotkeys import GlobalHotkeys, change_system_volume
+from .glossary import TranslationGlossary
 from .live import (
     LiveTranslator,
     capture_device_names,
@@ -462,6 +463,12 @@ class TranslatorWindow(tk.Tk):
             values=("firefox", "chrome", "edge"),
             state="readonly",
         ).grid(row=5, column=0, sticky="ew", pady=(5, 0))
+        ttk.Button(
+            self.advanced_frame,
+            text="Modifica glossario traduzioni",
+            command=self._open_glossary,
+            style="Subtle.TButton",
+        ).grid(row=6, column=0, sticky="ew", pady=(12, 0))
         self.advanced_frame.grid_remove()
 
         workspace = ttk.Frame(body, padding=(22, 0, 0, 0))
@@ -800,6 +807,16 @@ class TranslatorWindow(tk.Tk):
         self.clipboard_clear()
         self.clipboard_append(json.dumps(payload, ensure_ascii=False, indent=2))
         self.status_var.set("Diagnostica copiata negli appunti")
+
+    def _open_glossary(self) -> None:
+        try:
+            path = TranslationGlossary().ensure_template()
+            os.startfile(path)  # type: ignore[attr-defined]
+            self.status_var.set(
+                "Glossario aperto: le modifiche saranno applicate automaticamente"
+            )
+        except OSError as error:
+            messagebox.showerror("Glossario", str(error))
 
     def _scroll_settings(self, event: tk.Event) -> None:
         delta = int(-event.delta / 120)

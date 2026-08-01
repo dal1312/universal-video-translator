@@ -476,7 +476,7 @@ class LiveTranslator:
                 translate_started = time.monotonic()
                 try:
                     translated = self.cache.get(
-                        self.translator.model,
+                        getattr(self.translator, "cache_key", self.translator.model),
                         self.source_language,
                         original,
                     )
@@ -519,7 +519,11 @@ class LiveTranslator:
                             )
                         try:
                             self.cache.put(
-                                self.translator.model,
+                                getattr(
+                                    self.translator,
+                                    "cache_key",
+                                    self.translator.model,
+                                ),
                                 self.source_language,
                                 original,
                                 translated,

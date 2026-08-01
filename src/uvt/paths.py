@@ -40,6 +40,10 @@ class AppPaths:
     def updates(self) -> Path:
         return self.root / "updates"
 
+    @property
+    def glossary(self) -> Path:
+        return self.root / "glossary.json"
+
 
 def default_app_root() -> Path:
     local_app_data = os.environ.get("LOCALAPPDATA")

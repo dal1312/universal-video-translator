@@ -12,6 +12,8 @@ from urllib.parse import urlsplit
 import requests
 from langdetect import DetectorFactory, LangDetectException, detect_langs
 
+from .glossary import TranslationGlossary
+
 
 class OllamaError(RuntimeError):
     pass
@@ -101,6 +103,7 @@ class OllamaTranslator:
     model: str = "translategemma:latest"
     url: str = "http://127.0.0.1:11434/api/chat"
     timeout: float = 300.0
+    glossary: TranslationGlossary = field(default_factory=TranslationGlossary)
     _ready: bool = field(default=False, init=False, repr=False)
     _session: requests.Session = field(
         default_factory=requests.Session, init=False, repr=False
@@ -112,6 +115,21 @@ class OllamaTranslator:
     @property
     def last_failed_indices(self) -> tuple[int, ...]:
         return self._last_failed_indices
+
+    @property
+    def cache_key(self) -> str:
+        return f"{self.model}|glossary:{self.glossary.fingerprint}"
+
+    def _with_glossary(self, prompt: str, texts: list[str]) -> str:
+        terms = self.glossary.matched(texts)
+        if not terms:
+            return prompt
+        return (
+            prompt
+            + " Usa obbligatoriamente queste equivalenze terminologiche: "
+            + json.dumps(terms, ensure_ascii=False, sort_keys=True)
+            + "."
+        )
 
     def _base_url(self) -> str:
         parsed = urlsplit(self.url)
@@ -225,12 +243,12 @@ class OllamaTranslator:
         return content
 
     def translate(self, text: str, source_language: str = "auto") -> str:
-        system_prompt = (
+        system_prompt = self._with_glossary((
             "/no_think\nSei un motore di traduzione per doppiaggio. Traduci sempre il testo "
             "ricevuto in italiano naturale e parlato. Non ripetere il testo nella "
             "lingua originale. Mantieni significato, tono e brevità. Rispondi "
             "esclusivamente con la traduzione italiana, senza note né prefissi."
-        )
+        ), [text])
         return self._chat(
             [
                 {"role": "system", "content": system_prompt},
@@ -248,10 +266,10 @@ class OllamaTranslator:
             [
                 {
                     "role": "system",
-                    "content": (
+                    "content": self._with_glossary((
                         "/no_think\nTraduci in italiano parlato. "
                         "Rispondi solo con la traduzione, breve e naturale."
-                    ),
+                    ), [text]),
                 },
                 {"role": "user", "content": f"/no_think\n{text}"},
             ],
@@ -272,12 +290,12 @@ class OllamaTranslator:
         previous: str | None = None,
         following: str | None = None,
     ) -> str:
-        system_prompt = (
+        system_prompt = self._with_glossary((
             "/no_think\nTraduci obbligatoriamente in italiano naturale. "
             "Il testo puo essere in inglese, spagnolo, francese, tedesco o gia "
             "parzialmente tradotto. Se non e italiano, non copiarlo: traducilo. "
             "Rispondi solo con la versione italiana finale, senza note."
-        )
+        ), [text])
         context = {
             "previous_context": previous or "",
             "text_to_translate": text,
@@ -345,11 +363,11 @@ class OllamaTranslator:
             },
             "required": ["translations"],
         }
-        system_prompt = (
+        system_prompt = self._with_glossary((
             "/no_think\nTraduci in italiano naturale e parlato ogni elemento "
             "dell'array JSON ricevuto. Mantieni esattamente lo stesso ordine e "
             "numero di elementi. Non unire, saltare o spiegare le frasi."
-        )
+        ), texts)
         try:
             content = self._chat(
                 [
