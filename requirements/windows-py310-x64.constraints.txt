@@ -60,6 +60,7 @@ num2words==0.5.14
 numpy==2.2.6
 onnxruntime==1.23.2
 packaging==26.2
+Pillow==11.3.0
 pefile==2024.8.26
 phonemizer-fork==3.3.2
 pluggy==1.6.0
@@ -74,6 +75,7 @@ pyinstaller-hooks-contrib==2026.6
 pyparsing==3.3.2
 pypiwin32==223
 pyreadline3==3.5.6
+pystray==0.19.5
 pytest==8.4.2
 python-dateutil==2.9.0.post0
 pyttsx3==2.99

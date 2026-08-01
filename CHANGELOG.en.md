@@ -2,6 +2,14 @@
 
 [Italiano](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## Unreleased
+
+- Authenticated local bridge between popup and application with live state, profile, and latency.
+- `uvt://` is now only a fallback when UVT is not already running.
+- Latency guard discards obsolete queued audio segments.
+- Background mode with controls in both the popup and Windows notification area.
+- Full exit restores audio routing, threads, and local resources.
+
 ## 0.2.1 - 2026-07-31
 
 - The source tab is no longer replaced with the `uvt://` protocol URL.
@@ -10,7 +18,7 @@
 - The first-use protocol confirmation is shown in an active tab.
 - Public links no longer read the browser cookie database automatically; cookies remain a manual option and an access failure retries without cookies.
 - Audio routing follows the Chrome, Edge, or Firefox instance that started Overlay.
-- The extension requests no browser permissions and never retains tab IDs for cleanup after a restart.
+- The extension never retains tab IDs for cleanup after a restart.
 - Automatic startup is cancelled when VB-Cable or browser routing is unavailable; every setup failure restores browser audio.
 - A single desktop instance receives later extension clicks through authenticated local IPC.
 - Browser routing uses a persistent lease and is recovered automatically after a crash or forced termination.

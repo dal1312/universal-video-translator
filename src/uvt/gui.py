@@ -49,6 +49,7 @@ from .profiles import PROFILE_LABELS, profile_by_key, profile_key_from_label
 from .session import SessionMode, TranslationSession
 from .settings import AppSettings, SettingsStore
 from .tts import KOKORO_VOICES, windows_voice_names
+from .tray import TrayController
 from .workflow import PreparedPlayback, RunSettings, TranslationWorkflow
 
 
@@ -87,6 +88,7 @@ class TranslatorWindow(tk.Tk):
         self._instance_poll_job: str | None = None
         self._settings_save_job: str | None = None
         self._closing = False
+        self._background_notice_shown = False
         self.session = TranslationSession()
         self._file_run_id = 0
         self._live_run_id = 0
@@ -158,6 +160,12 @@ class TranslatorWindow(tk.Tk):
             name="uvt-audio-discovery",
         )
         self.protocol("WM_DELETE_WINDOW", self._request_close)
+        self._tray = TrayController(
+            on_open=lambda: self.after(0, self._restore_from_background),
+            on_stop=lambda: self.after(0, self._stop_from_tray),
+            on_quit=lambda: self.after(0, self._close),
+        )
+        self._tray.start()
 
     def _start_worker(
         self,
@@ -1861,13 +1869,37 @@ class TranslatorWindow(tk.Tk):
             self.status_var.set(
                 "UVT continua in background; riaprilo dall'estensione"
             )
+            if not self._background_notice_shown:
+                tray = getattr(self, "_tray", None)
+                if tray is not None:
+                    tray.notify(
+                        "La traduzione continua in background. Usa l'icona UVT per riaprire."
+                    )
+                self._background_notice_shown = True
             return
         self._close()
+
+    def _restore_from_background(self) -> None:
+        self.deiconify()
+        self.lift()
+        try:
+            self.focus_force()
+        except tk.TclError:
+            pass
+
+    def _stop_from_tray(self) -> None:
+        if TranslatorWindow._session_active(self, SessionMode.FILE):
+            self._stop()
+        if TranslatorWindow._session_active(self, SessionMode.LIVE):
+            self._stop_live_mode()
 
     def _close(self) -> None:
         if self._closing:
             return
         self._closing = True
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.close()
         if self._instance_broker is not None:
             self._instance_broker.begin_shutdown()
         for job in (

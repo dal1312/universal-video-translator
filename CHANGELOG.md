@@ -2,6 +2,14 @@
 
 [Italiano](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## Non rilasciato
+
+- Ponte locale autenticato tra popup e applicazione con stato, profilo e latenza in tempo reale.
+- Fallback `uvt://` utilizzato soltanto quando UVT non è ancora in esecuzione.
+- Protezione anti-ritardo che scarta i segmenti audio ormai obsoleti.
+- Modalità background con controlli nel popup e nell'area di notifica di Windows.
+- Arresto completo ripristina routing audio, thread e risorse locali.
+
 ## 0.2.1 - 2026-07-31
 
 - La scheda sorgente non viene più sostituita dal protocollo `uvt://`.
@@ -10,7 +18,7 @@
 - Il consenso iniziale al protocollo viene mostrato in una scheda attiva.
 - I link pubblici non tentano più di leggere automaticamente il database cookie del browser; i cookie restano selezionabili manualmente e un errore di accesso attiva il retry senza cookie.
 - Il routing audio segue Chrome, Edge o Firefox che ha avviato l'Overlay.
-- L'estensione non richiede alcun permesso browser e non conserva ID di schede da chiudere dopo un riavvio.
+- L'estensione non conserva ID di schede da chiudere dopo un riavvio.
 - L'avvio automatico viene annullato se VB-Cable o il routing browser non sono disponibili; ogni errore di setup ripristina l'uscita audio.
 - Una singola istanza desktop riceve tramite IPC locale autenticato i click successivi dell'estensione.
 - Il routing audio usa un lease persistente e viene recuperato automaticamente dopo crash o chiusura forzata.

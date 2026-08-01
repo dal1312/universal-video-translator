@@ -141,6 +141,7 @@ Comportamento previsto in v0.2.1:
 - il click seleziona **AI Overlay OS**, attende VB-Cable e avvia la traduzione live;
 - il popup mostra connessione, sessione e latenza reali e permette di scegliere il profilo e inviare avvia, porta in primo piano e stop;
 - durante una sessione, chiudere la finestra principale lascia UVT attivo in background; **Esci completamente da UVT** nel popup arresta e chiude il processo;
+- l'icona UVT nell'area di notifica offre **Apri**, **Stop AI Overlay** ed **Esci completamente**;
 - **Avvia** mantiene selezionato il video e lascia UVT in background; solo **Apri UVT** porta avanti la finestra desktop;
 - se UVT e' gia' aperto, la richiesta viene inoltrata alla finestra esistente.
 
