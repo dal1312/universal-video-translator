@@ -55,12 +55,17 @@ from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
 from .profiles import PROFILE_LABELS, profile_by_key, profile_key_from_label
-from .readiness import SystemReadiness, detect_system_readiness
+from .readiness import (
+    SystemReadiness,
+    detect_system_readiness,
+    select_available_model,
+)
 from .runtime import RuntimeSupervisor
 from .session import SessionMode, TranslationSession
 from .settings import AppSettings, SettingsStore
 from .tts import KOKORO_VOICES, windows_voice_names
 from .tray import TrayController
+from .ui_theme import apply_theme
 from .updates import AutomaticUpdater, UpdateResult, launch_pending_update
 from .workflow import PreparedPlayback, RunSettings, TranslationWorkflow
 
@@ -1518,313 +1523,12 @@ class TranslatorWindow(tk.Tk):
         self._apply_theme()
 
     def _apply_theme(self) -> None:
-        if self.dark_mode:
-            bg, panel, fg, field, accent, border = (
-                "#070a10",
-                "#101722",
-                "#f4f7fb",
-                "#172131",
-                "#6c8bff",
-                "#26354a",
-            )
-        else:
-            bg, panel, fg, field, accent, border = (
-                "#f3f5f8",
-                "#ffffff",
-                "#172033",
-                "#f7f9fc",
-                "#315ef5",
-                "#d7dee8",
-            )
-        muted = "#8290a5" if self.dark_mode else "#64748b"
-        hover = "#7f9aff" if self.dark_mode else "#244bd1"
-        self.configure(bg=bg)
-        if "settings_canvas" in self.__dict__:
-            self.settings_canvas.configure(background=panel)
-        self.style.configure(
-            ".", background=bg, foreground=fg, font=("Segoe UI Variable Text", 10)
+        self._theme_palette = apply_theme(
+            self,
+            self.style,
+            dark=self.dark_mode,
+            settings_canvas=getattr(self, "settings_canvas", None),
         )
-        self.style.configure("TFrame", background=bg)
-        self.style.configure("Main.TPanedwindow", background=bg)
-        self.style.configure(
-            "Card.TFrame",
-            background=panel,
-            relief="flat",
-        )
-        self.style.configure(
-            "Surface.TFrame",
-            background=panel,
-            bordercolor=border,
-            borderwidth=1,
-            relief="solid",
-        )
-        self.style.configure(
-            "Status.TFrame",
-            background=panel,
-            bordercolor=border,
-            borderwidth=1,
-            relief="solid",
-        )
-        self.style.configure("TLabel", background=bg, foreground=fg)
-        self.style.configure("Card.TLabel", background=panel, foreground=fg)
-        self.style.configure(
-            "Eyebrow.TLabel",
-            background=bg,
-            foreground=accent,
-            font=("Segoe UI Variable Text Semibold", 8),
-        )
-        self.style.configure(
-            "BrandMark.TLabel",
-            background=accent,
-            foreground="#ffffff",
-            font=("Segoe UI Variable Display Semibold", 14),
-            padding=(12, 10),
-            anchor="center",
-        )
-        self.style.configure(
-            "VersionBadge.TLabel",
-            background=field,
-            foreground=muted,
-            font=("Cascadia Mono", 8),
-            padding=(9, 6),
-        )
-        self.style.configure(
-            "Title.TLabel",
-            background=bg,
-            foreground=fg,
-            font=("Segoe UI Variable Display Semibold", 22),
-        )
-        self.style.configure(
-            "PanelTitle.TLabel",
-            background=bg,
-            foreground=fg,
-            font=("Segoe UI Variable Display Semibold", 16),
-        )
-        self.style.configure(
-            "CardPanelTitle.TLabel",
-            background=panel,
-            foreground=fg,
-            font=("Segoe UI Variable Display Semibold", 17),
-        )
-        self.style.configure(
-            "Section.TLabel",
-            background=bg,
-            foreground=accent,
-            font=("Segoe UI Variable Text Semibold", 8),
-        )
-        self.style.configure(
-            "CardSection.TLabel",
-            background=panel,
-            foreground=accent,
-            font=("Segoe UI Variable Text Semibold", 8),
-        )
-        self.style.configure(
-            "Subtitle.TLabel",
-            background=bg,
-            foreground=muted,
-            font=("Segoe UI Variable Text", 10),
-        )
-        self.style.configure(
-            "CardSubtitle.TLabel",
-            background=panel,
-            foreground=muted,
-            font=("Segoe UI Variable Text", 9),
-        )
-        self.style.configure(
-            "Accent.TLabel",
-            background=bg,
-            foreground=accent,
-            font=("Segoe UI Variable Text Semibold", 10),
-        )
-        self.style.configure(
-            "CardAccent.TLabel",
-            background=panel,
-            foreground=accent,
-            font=("Segoe UI Variable Text Semibold", 10),
-        )
-        self.style.configure(
-            "Status.TLabel", background=panel, foreground=fg
-        )
-        self.style.configure(
-            "StatusKey.TLabel",
-            background=panel,
-            foreground=muted,
-            font=("Segoe UI Variable Text Semibold", 8),
-        )
-        self.style.configure(
-            "StatusGood.TLabel",
-            background=panel,
-            foreground="#34d399",
-        )
-        self.style.configure(
-            "StatusBusy.TLabel",
-            background=panel,
-            foreground="#fbbf24",
-        )
-        self.style.configure(
-            "StatusError.TLabel",
-            background=panel,
-            foreground="#fb7185",
-        )
-        self.style.configure(
-            "TEntry",
-            fieldbackground=field,
-            foreground=fg,
-            insertcolor=fg,
-            bordercolor=border,
-            lightcolor=border,
-            darkcolor=border,
-            padding=(11, 9),
-        )
-        self.style.configure(
-            "TCombobox",
-            fieldbackground=field,
-            foreground=fg,
-            bordercolor=border,
-            lightcolor=border,
-            darkcolor=border,
-            padding=(10, 8),
-        )
-        self.style.map(
-            "TCombobox",
-            fieldbackground=[("readonly", field)],
-            foreground=[("readonly", fg)],
-        )
-        self.style.configure(
-            "TButton",
-            background=field,
-            foreground=fg,
-            borderwidth=0,
-            padding=(14, 9),
-            font=("Segoe UI Variable Text Semibold", 9),
-        )
-        self.style.map(
-            "TButton",
-            background=[("active", border), ("disabled", panel)],
-            foreground=[("disabled", muted)],
-        )
-        self.style.configure(
-            "Ghost.TButton", background=field, foreground=fg, padding=(13, 9)
-        )
-        self.style.configure(
-            "Secondary.TButton",
-            background=field,
-            foreground=fg,
-            padding=(15, 10),
-        )
-        self.style.map(
-            "Secondary.TButton",
-            background=[("active", border), ("disabled", field)],
-            foreground=[("disabled", muted)],
-        )
-        self.style.configure(
-            "Mode.TButton",
-            background=panel,
-            foreground=muted,
-            padding=(17, 10),
-            font=("Segoe UI Variable Text Semibold", 9),
-        )
-        self.style.map(
-            "Mode.TButton",
-            background=[("active", field), ("disabled", panel)],
-            foreground=[("active", fg), ("disabled", muted)],
-        )
-        self.style.configure(
-            "ModeSelected.TButton",
-            background=accent,
-            foreground="white",
-            padding=(17, 10),
-            font=("Segoe UI Variable Text Semibold", 9),
-        )
-        self.style.map(
-            "ModeSelected.TButton",
-            background=[("active", hover), ("disabled", accent)],
-            foreground=[("disabled", "white")],
-        )
-        self.style.configure(
-            "Subtle.TButton",
-            background=panel,
-            foreground=muted,
-            borderwidth=1,
-            bordercolor=border,
-            padding=(13, 9),
-        )
-        self.style.map(
-            "Subtle.TButton",
-            background=[("active", field)],
-            foreground=[("active", fg)],
-        )
-        self.style.configure(
-            "Danger.TButton",
-            background="#321b24" if self.dark_mode else "#fff1f3",
-            foreground="#fb7185" if self.dark_mode else "#be123c",
-            padding=(15, 10),
-        )
-        self.style.map(
-            "Danger.TButton",
-            background=[
-                ("active", "#48212d" if self.dark_mode else "#ffe4e8"),
-                ("disabled", field),
-            ],
-            foreground=[("disabled", muted)],
-        )
-        self.style.configure(
-            "Primary.TButton",
-            background=accent,
-            foreground="white",
-            font=("Segoe UI Variable Text Semibold", 10),
-            padding=(18, 10),
-        )
-        self.style.map(
-            "Primary.TButton",
-            background=[
-                ("active", hover),
-                ("disabled", "#475569"),
-            ],
-            foreground=[("disabled", "#cbd5e1")],
-        )
-        self.style.configure("TCheckbutton", background=bg, foreground=fg)
-        self.style.configure(
-            "Card.TCheckbutton", background=panel, foreground=fg
-        )
-        self.style.map(
-            "Card.TCheckbutton", background=[("active", panel)]
-        )
-        self.style.configure(
-            "Horizontal.TScale",
-            background=panel,
-            troughcolor=field,
-            bordercolor=panel,
-        )
-        self.style.configure(
-            "Vertical.TScrollbar",
-            background=field,
-            troughcolor=panel,
-            bordercolor=panel,
-            arrowcolor=muted,
-            relief="flat",
-        )
-        self.style.map(
-            "Vertical.TScrollbar",
-            background=[("active", border), ("pressed", accent)],
-            arrowcolor=[("active", fg)],
-        )
-        self.style.configure(
-            "TNotebook", background=bg, borderwidth=0
-        )
-        self.style.configure(
-            "TNotebook.Tab",
-            background=panel,
-            foreground=fg,
-            padding=(18, 11),
-            font=("Segoe UI Variable Text Semibold", 10),
-        )
-        self.style.map(
-            "TNotebook.Tab",
-            background=[("selected", field), ("active", field)],
-            foreground=[("selected", accent), ("active", fg)],
-        )
-        self._theme_colors = (bg, field, fg)
 
     def _refresh_status_indicator(self) -> None:
         if "status_dot" not in self.__dict__:
@@ -1853,7 +1557,9 @@ class TranslatorWindow(tk.Tk):
         self.status_dot.configure(style=style)
 
     def _apply_text_colors(self) -> None:
-        bg, field, fg = self._theme_colors
+        colors = self._theme_palette
+        field = colors.field
+        fg = colors.foreground
         self.output.configure(
             bg=field,
             fg=fg,
@@ -1866,8 +1572,8 @@ class TranslatorWindow(tk.Tk):
             spacing3=8,
             font=("Segoe UI Variable Text", 11),
             highlightthickness=1,
-            highlightbackground="#26354a" if self.dark_mode else "#d7dee8",
-            highlightcolor="#6c8bff" if self.dark_mode else "#315ef5",
+            highlightbackground=colors.border,
+            highlightcolor=colors.accent,
         )
         if hasattr(self, "text_menu"):
             self.text_menu.configure(bg=field, fg=fg)
@@ -2062,9 +1768,16 @@ class TranslatorWindow(tk.Tk):
     def _load_models(self) -> None:
         try:
             models = OllamaTranslator(model="translategemma:latest").list_models()
-            self._call_in_ui(self.model_combo.configure, {"values": models})
+            self._call_in_ui(self._apply_models, models)
         except Exception as error:
             log_exception("models", "discovery_failed", error)
+
+    def _apply_models(self, models: list[str]) -> None:
+        self.model_combo.configure(values=models)
+        selected = select_available_model(models, self.model_var.get())
+        if selected is not None and selected != self.model_var.get():
+            self.model_var.set(selected)
+            self.status_var.set(f"Modello selezionato automaticamente: {selected}")
 
     def _load_capture_devices(self) -> None:
         try:

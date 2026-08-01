@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- Visual system extracted from the main window and automatic selection of an installed Ollama model when the saved choice is unavailable.
 - Contextual settings panel, collapsed at startup, with automatic component detection and Windows voice fallback when Kokoro is unavailable.
 - Central runtime supervisor for background workers and coordinated multimedia-resource shutdown.
 - Desktop UI redesigned as a local control room with clearer typography, flow navigation, and operating states.

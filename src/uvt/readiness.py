@@ -63,8 +63,33 @@ def detect_system_readiness() -> SystemReadiness:
     )
 
 
+def select_available_model(
+    models: list[str] | tuple[str, ...],
+    preferred: str,
+) -> str | None:
+    available = tuple(dict.fromkeys(model.strip() for model in models if model.strip()))
+    if not available:
+        return None
+    lookup = {model.casefold(): model for model in available}
+    candidates = (
+        preferred,
+        _with_latest(preferred),
+        "translategemma:latest",
+        "translategemma",
+        "qwen3:4b",
+    )
+    for candidate in candidates:
+        if candidate.casefold() in lookup:
+            return lookup[candidate.casefold()]
+    return sorted(available, key=str.casefold)[0]
+
+
 def _module_available(module: str) -> bool:
     try:
         return importlib.util.find_spec(module) is not None
     except (ImportError, AttributeError, ValueError):
         return False
+
+
+def _with_latest(model: str) -> str:
+    return model if ":" in model else f"{model}:latest"
