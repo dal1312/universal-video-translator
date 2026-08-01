@@ -1,0 +1,55 @@
+{
+  "status": "PASS",
+  "thresholds": {
+    "whisper_wer_max": 0.15,
+    "translation_keyword_score_min": 0.8,
+    "translation_worst_seconds_max": 6.0,
+    "tts_realtime_factor_max": 1.0
+  },
+  "whisper": {
+    "model": "base",
+    "seconds": 10.478,
+    "word_error_rate": 0.0,
+    "transcript": "The meeting starts tomorrow morning. Please check the audio connection before the presentation."
+  },
+  "translation": {
+    "model": "translategemma:latest",
+    "warmup_seconds": 1.095,
+    "median_seconds": 1.8,
+    "worst_seconds": 2.221,
+    "keyword_score": 1.0,
+    "cases": [
+      {
+        "source": "The meeting starts tomorrow morning.",
+        "translation": "La riunione inizia domani mattina.",
+        "seconds": 1.604,
+        "keyword_score": 1.0
+      },
+      {
+        "source": "El sistema funciona correctamente después de la última prueba.",
+        "translation": "Il sistema funziona bene dopo il test.",
+        "seconds": 1.602,
+        "keyword_score": 1.0
+      },
+      {
+        "source": "Le fichier vidéo est prêt pour l'exportation.",
+        "translation": "Il video è pronto per essere esportato.",
+        "seconds": 1.996,
+        "keyword_score": 1.0
+      },
+      {
+        "source": "Bitte überprüfen Sie die Audioverbindung, bevor Sie beginnen.",
+        "translation": "Per favore, controllate la connessione audio prima di iniziare.",
+        "seconds": 2.221,
+        "keyword_score": 1.0
+      }
+    ]
+  },
+  "speech": {
+    "engine": "kokoro",
+    "generation_seconds": 4.634,
+    "audio_seconds": 10.45,
+    "realtime_factor": 0.443
+  },
+  "scope": "Benchmark locale controllato dei componenti; la latenza browser end-to-end include anche cattura, VAD e code della sessione reale."
+}

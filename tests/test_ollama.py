@@ -25,7 +25,7 @@ def test_missing_model_has_precise_error() -> None:
         translator._ensure_ready()
 
 
-def test_warmup_loads_model_without_translation_prompt() -> None:
+def test_warmup_exercises_generation_with_live_options() -> None:
     translator = OllamaTranslator(model="test:latest")
     translator._ready = True
     response = Mock()
@@ -36,11 +36,15 @@ def test_warmup_loads_model_without_translation_prompt() -> None:
 
     call = translator._session.post.call_args
     assert call.args[0].endswith("/api/generate")
-    assert call.kwargs["json"] == {
-        "model": "test:latest",
-        "prompt": "",
-        "stream": False,
-        "keep_alive": "30m",
+    payload = call.kwargs["json"]
+    assert payload["model"] == "test:latest"
+    assert "senza omettere dettagli" in payload["prompt"]
+    assert payload["stream"] is False
+    assert payload["keep_alive"] == "30m"
+    assert payload["options"] == {
+        "temperature": 0.0,
+        "num_ctx": 1024,
+        "num_predict": 16,
     }
 
 

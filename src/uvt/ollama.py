@@ -194,15 +194,23 @@ class OllamaTranslator:
         return sorted(self._installed_models(), key=str.casefold)
 
     def warmup(self) -> None:
-        """Load the selected model before the first real translation."""
+        """Load the model and exercise token generation before live audio."""
         self._ensure_ready()
         response = self._session.post(
             f"{self._base_url()}/api/generate",
             json={
                 "model": self.model,
-                "prompt": "",
+                "prompt": (
+                    "/no_think\nTraduci in italiano senza omettere dettagli: "
+                    "The audio is ready."
+                ),
                 "stream": False,
                 "keep_alive": "30m",
+                "options": {
+                    "temperature": 0.0,
+                    "num_ctx": 1024,
+                    "num_predict": 16,
+                },
             },
             timeout=min(self.timeout, 60.0),
         )
@@ -282,8 +290,9 @@ class OllamaTranslator:
                 {
                     "role": "system",
                     "content": self._with_glossary((
-                        "/no_think\nTraduci in italiano parlato. "
-                        "Rispondi solo con la traduzione, breve e naturale."
+                        "/no_think\nTraduci fedelmente in italiano parlato. "
+                        "Conserva soggetto, azione e dettagli importanti. "
+                        "Rispondi solo con una frase naturale, senza spiegazioni."
                     ), [text]),
                 },
                 {"role": "user", "content": f"/no_think\n{text}"},

@@ -4,6 +4,7 @@
 
 ## Non rilasciato
 
+- Benchmark locale ripetibile per accuratezza Whisper, fedelta' multilingue, latenza Ollama e velocita' Kokoro; warm-up Ollama completo per eliminare il ritardo della prima traduzione Live.
 - Export audio/video separato dalla finestra in un controller dedicato e worker del player progressivo registrati nel supervisore runtime per uno shutdown deterministico.
 - Lifecycle della traduzione documenti estratto dalla GUI in un controller dedicato con cancellazione e stato di sessione centralizzati.
 - Layout Tk estratto in un modulo dedicato, preflight rilanciabile e warm-up parallelo di Ollama, Whisper e sintesi vocale per ridurre la prima risposta Live.

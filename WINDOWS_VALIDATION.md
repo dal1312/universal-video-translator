@@ -19,7 +19,7 @@ Status: **PASS - SOURCE, FULL PREFLIGHT, GUI SMOKE, PACKAGE, CHECKSUM, AND SINGL
 ## Automated Verification
 
 ```text
-184 passed in 6.95s
+187 passed in 8.65s
 ```
 
 Additional checks:
@@ -33,10 +33,24 @@ Additional checks:
 - contextual settings open/close and deterministic GUI shutdown: PASS
 - parallel Ollama, Whisper, and speech warm-up tests: PASS
 - media export controller and progressive worker ownership tests: PASS
+- controlled local benchmark (`WINDOWS_BENCHMARK.json`): PASS
 - project, Python package, and extension version agreement: PASS
 - deterministic package metadata tests: PASS
 
 The full preflight validated Python dependencies, eSpeak NG data, language-tags data, SoundVolumeView integrity, the browser extension, all FFmpeg tools from one distribution, Deno, Ollama, the default model, and VB-Cable.
+
+## Controlled Local Benchmark
+
+- Whisper `base` word error rate: `0.000`
+- Ollama warm-up: `1.095 s`
+- translation median: `1.800 s`
+- translation worst case: `2.221 s`
+- multilingual keyword fidelity: `1.000`
+- Kokoro generation realtime factor: `0.443`
+
+This benchmark exercises the real local Whisper, `translategemma:latest`, and
+Kokoro engines. Browser end-to-end latency additionally depends on capture,
+VAD, natural speech pauses, and live queues.
 
 ## Packaged Application
 

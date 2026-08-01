@@ -198,6 +198,16 @@ Dall'app puoi rilanciare il controllo essenziale con **Impostazioni → Verifica
 .\.venv\Scripts\python.exe scripts\windows\smoke_gui.py
 ```
 
+Per misurare in modo ripetibile accuratezza Whisper, fedelta' della traduzione,
+tempo Ollama e velocita' Kokoro sui motori locali reali:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\windows\benchmark_local.py --output WINDOWS_BENCHMARK.json
+```
+
+Il benchmark controllato non sostituisce la misura live: la latenza browser
+comprende anche cattura, VAD, pause del parlato e code audio.
+
 Ultima validazione locale registrata in `WINDOWS_VALIDATION.md`:
 
 - Suite pytest completa superata nell'ultima validazione locale.

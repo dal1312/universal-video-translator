@@ -187,6 +187,16 @@ The essential check can be repeated inside the app with **Settings → Verify co
 .\.venv\Scripts\python.exe scripts\windows\smoke_gui.py
 ```
 
+To measure Whisper accuracy, translation fidelity, Ollama time, and Kokoro
+generation speed repeatably on the real local engines:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\windows\benchmark_local.py --output WINDOWS_BENCHMARK.json
+```
+
+This controlled benchmark does not replace a live measurement: browser
+latency also includes capture, VAD, speech pauses, and audio queues.
+
 The latest local validation recorded in `WINDOWS_VALIDATION.md` includes:
 
 - The complete pytest suite passed in the latest local validation.
