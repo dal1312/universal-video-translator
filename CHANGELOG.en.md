@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- Document translation lifecycle extracted from the GUI into a dedicated controller with centralized cancellation and session state.
 - Tk layout extracted into a dedicated module, repeatable preflight, and parallel Ollama, Whisper, and speech warm-up to reduce the first Live response.
 - End-to-end Windows smoke test covering GUI construction, contextual settings, and complete shutdown.
 - Operational failures centralized into actionable messages that explain the problem and correction without exposing internal details.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
+import threading
 from typing import Any
 
 from .audio_routing import (
@@ -8,6 +10,8 @@ from .audio_routing import (
     AudioRoutingError,
     BrowserVolumeDucker,
 )
+from .documents import DocumentTranslator
+from .ollama import OllamaTranslator
 from .session import SessionMode, TranslationSession
 from .workflow import PreparedPlayback, RunSettings, TranslationWorkflow
 
@@ -72,6 +76,49 @@ class LiveTranslationController:
             return False
         self.session.finish(SessionMode.LIVE)
         return True
+
+
+class DocumentTranslationController:
+    def __init__(self, session: TranslationSession) -> None:
+        self.session = session
+        self.cancel = threading.Event()
+
+    @property
+    def cancelled(self) -> bool:
+        return self.cancel.is_set()
+
+    def begin(self) -> int:
+        self.cancel.clear()
+        return self.session.begin(SessionMode.DOCUMENT)
+
+    def translate(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        language: str,
+        model: str,
+        run_id: int,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> Path | None:
+        translator = DocumentTranslator(OllamaTranslator(model=model))
+        result = translator.translate(
+            source,
+            destination,
+            source_language=language,
+            cancel=self.cancel,
+            on_progress=on_progress,
+        )
+        if not self.session.accepts(SessionMode.DOCUMENT, run_id):
+            return None
+        return result
+
+    def request_stop(self) -> None:
+        self.session.begin_stopping(SessionMode.DOCUMENT)
+        self.cancel.set()
+
+    def finish(self) -> None:
+        self.session.finish(SessionMode.DOCUMENT)
 
 
 class BrowserAudioController:

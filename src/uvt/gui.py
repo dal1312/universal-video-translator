@@ -31,14 +31,13 @@ from .browser_bridge import LocalBrowserBridge
 from .cache import TranslationCache
 from .controllers import (
     BrowserAudioController,
+    DocumentTranslationController,
     FileTranslationController,
     LiveTranslationController,
 )
 from .diagnostics import log_exception, logger
 from .documents import (
     SUPPORTED_DOCUMENT_EXTENSIONS,
-    DocumentTranslationError,
-    DocumentTranslator,
     default_document_destination,
 )
 from .error_messages import present_error
@@ -114,7 +113,6 @@ class TranslatorWindow(tk.Tk):
         self._file_run_id = 0
         self._live_run_id = 0
         self._document_run_id = 0
-        self._document_cancel = threading.Event()
         self._runtime = RuntimeSupervisor()
         self._capture_devices_loaded = False
         self.preview = MediaPreview()
@@ -128,6 +126,7 @@ class TranslatorWindow(tk.Tk):
             self.session, self.workflow
         )
         self.live_controller = LiveTranslationController(self.session)
+        self.document_controller = DocumentTranslationController(self.session)
         self.browser_audio_controller = BrowserAudioController(
             self._audio_router,
             selected_browser=self._routing_browser,
@@ -714,9 +713,8 @@ class TranslatorWindow(tk.Tk):
             messagebox.showerror("Documenti", "Interrompi prima la sessione attiva.")
             return
         self._select_source_mode("document")
-        run_id = self.session.begin(SessionMode.DOCUMENT)
+        run_id = self.document_controller.begin()
         self._document_run_id = run_id
-        self._document_cancel.clear()
         self.document_start_button.configure(state="disabled")
         self.document_stop_button.configure(state="normal")
         self.status_var.set("Preparazione documento…")
@@ -739,12 +737,12 @@ class TranslatorWindow(tk.Tk):
         run_id: int,
     ) -> None:
         try:
-            translator = DocumentTranslator(OllamaTranslator(model=model))
-            result = translator.translate(
+            result = self.document_controller.translate(
                 source,
                 destination,
-                source_language=language,
-                cancel=self._document_cancel,
+                language=language,
+                model=model,
+                run_id=run_id,
                 on_progress=lambda done, total: self._call_in_ui(
                     self.status_var.set,
                     f"Documento: {done}/{total} blocchi tradotti",
@@ -760,13 +758,13 @@ class TranslatorWindow(tk.Tk):
     def _finish_document_translation(
         self, error: Exception | None, result: Path | None = None
     ) -> None:
-        self.session.finish(SessionMode.DOCUMENT)
+        self.document_controller.finish()
         self._document_run_id = self.session.run_id
         self.document_start_button.configure(state="normal")
         self.document_stop_button.configure(state="disabled")
         self._sync_mode_controls()
         if error is not None:
-            if isinstance(error, DocumentTranslationError) and self._document_cancel.is_set():
+            if self.document_controller.cancelled:
                 self.status_var.set("Traduzione documento interrotta")
             else:
                 self._show_error(error)
@@ -777,10 +775,7 @@ class TranslatorWindow(tk.Tk):
     def _stop_document_translation(self) -> None:
         if self.session.mode is not SessionMode.DOCUMENT or not self.session.busy:
             return
-        self.session.begin_stopping(SessionMode.DOCUMENT)
-        document_cancel = getattr(self, "_document_cancel", None)
-        if document_cancel is not None:
-            document_cancel.set()
+        self.document_controller.request_stop()
         self.document_stop_button.configure(state="disabled")
         self.status_var.set("Arresto traduzione documento…")
 
@@ -1418,9 +1413,7 @@ class TranslatorWindow(tk.Tk):
             return
         self._closing = True
         self._runtime.begin_shutdown()
-        document_cancel = getattr(self, "_document_cancel", None)
-        if document_cancel is not None:
-            document_cancel.set()
+        self.document_controller.cancel.set()
         tray = getattr(self, "_tray", None)
         if tray is not None:
             tray.close()
