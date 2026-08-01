@@ -158,7 +158,7 @@ class TranslatorWindow(tk.Tk):
         self._update_status = "checking"
         self.status_var = tk.StringVar(value="Pronto")
         self.dark_mode = saved.dark_mode
-        self.advanced_visible = saved.advanced_visible
+        self.advanced_visible = False
         self._configure_theme()
         self._build()
         self._restore_saved_layout()
@@ -259,58 +259,45 @@ class TranslatorWindow(tk.Tk):
             pass
 
     def _build(self) -> None:
-        root = ttk.Frame(self, padding=(24, 20, 24, 18))
+        root = ttk.Frame(self, padding=(22, 16, 22, 16))
         root.pack(fill="both", expand=True)
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
 
         header = ttk.Frame(root)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 18))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 14))
         header.columnconfigure(0, weight=1)
         title_box = ttk.Frame(header)
         title_box.grid(row=0, column=0, sticky="w")
-        brand_mark = ttk.Label(title_box, text="UVT", style="BrandMark.TLabel")
-        brand_mark.configure(width=4, anchor="center")
-        brand_mark.grid(row=0, column=0, rowspan=3, sticky="nsw", padx=(0, 14))
-        ttk.Label(
-            title_box,
-            text="LOCAL AI / PRIVATE BY DESIGN",
-            style="Eyebrow.TLabel",
-        ).grid(row=0, column=1, sticky="w")
         ttk.Label(
             title_box,
             text="Universal Video Translator",
             style="Title.TLabel",
-        ).grid(row=1, column=1, sticky="w")
+        ).grid(row=0, column=0, sticky="w")
         ttk.Label(
             title_box,
-            text="Media, live audio e documenti. Tutto locale.",
+            text="Traduzione locale di media, audio e documenti",
             style="Subtitle.TLabel",
-        ).grid(row=2, column=1, sticky="w", pady=(1, 0))
-        ttk.Label(
-            header,
-            text=f"v{__version__}",
-            style="VersionBadge.TLabel",
-        ).grid(row=0, column=1, padx=(12, 4), sticky="e")
+        ).grid(row=1, column=0, sticky="w", pady=(1, 0))
         ttk.Button(
             header,
             text="Estensione browser",
             command=self._connect_browser,
             style="Ghost.TButton",
-        ).grid(row=0, column=2, padx=(8, 0), sticky="e")
+        ).grid(row=0, column=1, rowspan=2, padx=(8, 0), sticky="e")
         self.theme_button = ttk.Button(
             header,
             text="Tema chiaro",
             command=self._toggle_theme,
             style="Ghost.TButton",
         )
-        self.theme_button.grid(row=0, column=3, padx=(8, 0))
+        self.theme_button.grid(row=0, column=2, rowspan=2, padx=(8, 0))
 
         body = ttk.Panedwindow(root, orient="horizontal", style="Main.TPanedwindow")
         body.grid(row=1, column=0, sticky="nsew")
 
         settings_card = ttk.Frame(body, style="Surface.TFrame")
-        settings_card.configure(width=300)
+        settings_card.configure(width=270)
         settings_card.columnconfigure(0, weight=1)
         settings_card.rowconfigure(0, weight=1)
         panel_color = self.style.lookup("Card.TFrame", "background")
@@ -329,7 +316,7 @@ class TranslatorWindow(tk.Tk):
         self.settings_canvas.grid(row=0, column=0, sticky="nsew")
         settings_scrollbar.grid(row=0, column=1, sticky="ns")
         settings = ttk.Frame(
-            self.settings_canvas, padding=(20, 20, 18, 22), style="Card.TFrame"
+            self.settings_canvas, padding=(18, 18, 16, 20), style="Card.TFrame"
         )
         settings.columnconfigure(0, weight=1)
         settings_window = self.settings_canvas.create_window(
@@ -359,56 +346,11 @@ class TranslatorWindow(tk.Tk):
         )
         body.add(settings_card, weight=1)
         ttk.Label(
-            settings, text="CONTROL PANEL", style="CardSection.TLabel"
+            settings, text="IMPOSTAZIONI", style="CardSection.TLabel"
         ).grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            settings,
-            text="Motore, voce e performance condivisi tra tutti i flussi.",
-            style="CardSubtitle.TLabel",
-            wraplength=252,
-        ).grid(row=1, column=0, sticky="w", pady=(5, 20))
-
-        ttk.Label(settings, text="Modello Ollama", style="Card.TLabel").grid(
-            row=2, column=0, sticky="w"
-        )
-        self.model_combo = ttk.Combobox(
-            settings,
-            textvariable=self.model_var,
-            values=("translategemma:latest", "qwen3:4b"),
-            state="readonly",
-        )
-        self.model_combo.grid(
-            row=3, column=0, sticky="ew", pady=(6, 14)
-        )
-
-        ttk.Label(settings, text="Lingua originale", style="Card.TLabel").grid(
-            row=4, column=0, sticky="w"
-        )
-        ttk.Combobox(
-            settings,
-            textvariable=self.language_var,
-            values=("auto", "inglese", "spagnolo", "francese", "tedesco"),
-            state="readonly",
-        ).grid(row=5, column=0, sticky="ew", pady=(6, 14))
-
-        ttk.Label(settings, text="Motore voce", style="Card.TLabel").grid(
-            row=6, column=0, sticky="w"
-        )
-        self.speech_combo = ttk.Combobox(
-            settings,
-            textvariable=self.speech_engine_var,
-            values=("kokoro", "windows"),
-            state="readonly",
-        )
-        self.speech_combo.grid(
-            row=7, column=0, sticky="ew", pady=(6, 14)
-        )
-        self.speech_combo.bind(
-            "<<ComboboxSelected>>", self._refresh_voices
-        )
 
         ttk.Label(settings, text="Voce italiana", style="Card.TLabel").grid(
-            row=8, column=0, sticky="w"
+            row=1, column=0, sticky="w", pady=(18, 0)
         )
         self.voice_combo = ttk.Combobox(
             settings,
@@ -417,11 +359,11 @@ class TranslatorWindow(tk.Tk):
             state="readonly",
         )
         self.voice_combo.grid(
-            row=9, column=0, sticky="ew", pady=(6, 14)
+            row=2, column=0, sticky="ew", pady=(6, 16)
         )
 
         rate_header = ttk.Frame(settings, style="Card.TFrame")
-        rate_header.grid(row=10, column=0, sticky="ew")
+        rate_header.grid(row=3, column=0, sticky="ew")
         rate_header.columnconfigure(0, weight=1)
         ttk.Label(rate_header, text="Velocità voce", style="Card.TLabel").grid(
             row=0, column=0, sticky="w"
@@ -435,10 +377,10 @@ class TranslatorWindow(tk.Tk):
             to=260,
             variable=self.rate_var,
             orient="horizontal",
-        ).grid(row=11, column=0, sticky="ew", pady=(5, 16))
+        ).grid(row=4, column=0, sticky="ew", pady=(5, 18))
 
         ttk.Label(settings, text="Profilo prestazioni", style="Card.TLabel").grid(
-            row=12, column=0, sticky="w"
+            row=5, column=0, sticky="w"
         )
         self.profile_combo = ttk.Combobox(
             settings,
@@ -446,104 +388,136 @@ class TranslatorWindow(tk.Tk):
             values=PROFILE_LABELS,
             state="readonly",
         )
-        self.profile_combo.grid(row=13, column=0, sticky="ew", pady=(6, 14))
+        self.profile_combo.grid(row=6, column=0, sticky="ew", pady=(6, 18))
         self.profile_combo.bind("<<ComboboxSelected>>", self._apply_profile)
 
         self.advanced_button = ttk.Button(
             settings,
-            text="Mostra impostazioni avanzate",
+            text="Impostazioni avanzate",
             command=self._toggle_advanced_settings,
             style="Subtle.TButton",
         )
         self.advanced_button.grid(
-            row=14, column=0, sticky="ew", pady=(2, 0)
+            row=7, column=0, sticky="ew"
         )
         self.advanced_frame = ttk.Frame(
             settings, style="Card.TFrame"
         )
         self.advanced_frame.grid(
-            row=15, column=0, sticky="ew", pady=(14, 0)
+            row=8, column=0, sticky="ew", pady=(14, 0)
         )
         self.advanced_frame.columnconfigure(0, weight=1)
         ttk.Label(
+            self.advanced_frame, text="Modello traduzione", style="Card.TLabel"
+        ).grid(row=0, column=0, sticky="w")
+        self.model_combo = ttk.Combobox(
+            self.advanced_frame,
+            textvariable=self.model_var,
+            values=("translategemma:latest", "qwen3:4b"),
+            state="readonly",
+        )
+        self.model_combo.grid(row=1, column=0, sticky="ew", pady=(5, 12))
+        ttk.Label(
+            self.advanced_frame, text="Lingua sorgente", style="Card.TLabel"
+        ).grid(row=2, column=0, sticky="w")
+        ttk.Combobox(
+            self.advanced_frame,
+            textvariable=self.language_var,
+            values=("auto", "inglese", "spagnolo", "francese", "tedesco"),
+            state="readonly",
+        ).grid(row=3, column=0, sticky="ew", pady=(5, 12))
+        ttk.Label(
+            self.advanced_frame, text="Motore voce", style="Card.TLabel"
+        ).grid(row=4, column=0, sticky="w")
+        self.speech_combo = ttk.Combobox(
+            self.advanced_frame,
+            textvariable=self.speech_engine_var,
+            values=("kokoro", "windows"),
+            state="readonly",
+        )
+        self.speech_combo.grid(row=5, column=0, sticky="ew", pady=(5, 12))
+        self.speech_combo.bind("<<ComboboxSelected>>", self._refresh_voices)
+        ttk.Label(
             self.advanced_frame, text="Modello Whisper", style="Card.TLabel"
         ).grid(
-            row=0, column=0, sticky="w"
+            row=6, column=0, sticky="w"
         )
         ttk.Combobox(
             self.advanced_frame,
             textvariable=self.whisper_var,
             values=("tiny", "base", "small", "medium"),
             state="readonly",
-        ).grid(row=1, column=0, sticky="ew", pady=(5, 12))
+        ).grid(row=7, column=0, sticky="ew", pady=(5, 12))
         ttk.Label(
             self.advanced_frame, text="Cookie YouTube", style="Card.TLabel"
         ).grid(
-            row=2, column=0, sticky="w"
+            row=8, column=0, sticky="w"
         )
         ttk.Combobox(
             self.advanced_frame,
             textvariable=self.cookies_var,
             values=("firefox", "chrome", "edge", "nessuno"),
             state="readonly",
-        ).grid(row=3, column=0, sticky="ew", pady=(5, 12))
+        ).grid(row=9, column=0, sticky="ew", pady=(5, 12))
         ttk.Label(
             self.advanced_frame, text="Browser audio Overlay", style="Card.TLabel"
-        ).grid(row=4, column=0, sticky="w")
+        ).grid(row=10, column=0, sticky="w")
         ttk.Combobox(
             self.advanced_frame,
             textvariable=self.routing_browser_var,
             values=("firefox", "chrome", "edge"),
             state="readonly",
-        ).grid(row=5, column=0, sticky="ew", pady=(5, 0))
+        ).grid(row=11, column=0, sticky="ew", pady=(5, 0))
         ttk.Button(
             self.advanced_frame,
             text="Modifica glossario traduzioni",
             command=self._open_glossary,
             style="Subtle.TButton",
-        ).grid(row=6, column=0, sticky="ew", pady=(12, 0))
+        ).grid(row=12, column=0, sticky="ew", pady=(12, 0))
+        ttk.Checkbutton(
+            self.advanced_frame,
+            text="Mostra trascrizione nell’app",
+            variable=self.show_text_var,
+            command=self._refresh_output_visibility,
+            style="Card.TCheckbutton",
+        ).grid(row=13, column=0, sticky="w", pady=(14, 0))
         self.advanced_frame.grid_remove()
 
         workspace = ttk.Frame(body, padding=(18, 0, 0, 0))
         workspace.columnconfigure(0, weight=1)
-        workspace.rowconfigure(3, weight=1)
+        workspace.rowconfigure(1, weight=1)
         body.add(workspace, weight=3)
-
-        ttk.Label(
-            workspace,
-            text="SCEGLI IL FLUSSO",
-            style="Section.TLabel",
-        ).grid(row=0, column=0, sticky="w")
 
         source_selector = ttk.Frame(
             workspace, padding=4, style="Surface.TFrame"
         )
-        source_selector.grid(row=1, column=0, sticky="w", pady=(8, 10))
+        source_selector.grid(row=0, column=0, sticky="w", pady=(0, 10))
         self.file_mode_button = ttk.Button(
             source_selector,
-            text="01  MEDIA",
+            text="Media",
             command=lambda: self._select_source_mode("file"),
             style="ModeSelected.TButton",
         )
         self.file_mode_button.pack(side="left")
         self.live_mode_button = ttk.Button(
             source_selector,
-            text="02  LIVE AUDIO",
+            text="Live audio",
             command=lambda: self._select_source_mode("live"),
             style="Mode.TButton",
         )
         self.live_mode_button.pack(side="left", padx=(4, 0))
         self.document_mode_button = ttk.Button(
             source_selector,
-            text="03  DOCUMENTI",
+            text="Documenti",
             command=lambda: self._select_source_mode("document"),
             style="Mode.TButton",
         )
         self.document_mode_button.pack(side="left", padx=(4, 0))
 
         mode_stage = ttk.Frame(workspace)
-        mode_stage.grid(row=2, column=0, sticky="ew")
+        mode_stage.grid(row=1, column=0, sticky="nsew")
         mode_stage.columnconfigure(0, weight=1)
+        mode_stage.rowconfigure(0, weight=1)
         video_tab = ttk.Frame(
             mode_stage, padding=22, style="Surface.TFrame"
         )
@@ -554,9 +528,9 @@ class TranslatorWindow(tk.Tk):
         self.document_tab = ttk.Frame(
             mode_stage, padding=22, style="Surface.TFrame"
         )
-        video_tab.grid(row=0, column=0, sticky="ew")
-        self.overlay_tab.grid(row=0, column=0, sticky="ew")
-        self.document_tab.grid(row=0, column=0, sticky="ew")
+        video_tab.grid(row=0, column=0, sticky="nsew")
+        self.overlay_tab.grid(row=0, column=0, sticky="nsew")
+        self.document_tab.grid(row=0, column=0, sticky="nsew")
         self.overlay_tab.grid_remove()
         self.document_tab.grid_remove()
 
@@ -767,40 +741,28 @@ class TranslatorWindow(tk.Tk):
             command=self._copy_diagnostics,
             style="Subtle.TButton",
         ).pack(side="right")
-        ttk.Label(
-            self.overlay_tab,
-            textvariable=self.latency_detail_var,
-            style="CardSubtitle.TLabel",
-        ).grid(row=6, column=0, sticky="w", pady=(5, 0))
-
-        output_card = ttk.Frame(
+        self.output_card = ttk.Frame(
             workspace, padding=16, style="Surface.TFrame"
         )
-        output_card.grid(
-            row=3, column=0, sticky="nsew", pady=(16, 0)
+        self.output_card.grid(
+            row=2, column=0, sticky="nsew", pady=(12, 0)
         )
-        output_card.columnconfigure(0, weight=1)
-        output_card.rowconfigure(1, weight=1)
+        self.output_card.columnconfigure(0, weight=1)
+        self.output_card.rowconfigure(1, weight=1)
         output_header = ttk.Frame(
-            output_card, style="Card.TFrame"
+            self.output_card, style="Card.TFrame"
         )
         output_header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        output_header.columnconfigure(0, weight=1)
         ttk.Label(
             output_header,
             text="Output traduzione",
             style="CardPanelTitle.TLabel",
         ).grid(row=0, column=0, sticky="w")
-        ttk.Checkbutton(
-            output_header,
-            text="Mostra testo",
-            variable=self.show_text_var,
-            style="Card.TCheckbutton",
-        ).grid(row=0, column=1, sticky="e")
         self.output = tk.Text(
-            output_card, wrap="word", height=3, state="disabled"
+            self.output_card, wrap="word", height=3, state="disabled"
         )
         self.output.grid(row=1, column=0, sticky="nsew")
+        self._refresh_output_visibility()
         self._apply_text_colors()
 
         status_bar = ttk.Frame(root, padding=(12, 8), style="Status.TFrame")
@@ -811,11 +773,6 @@ class TranslatorWindow(tk.Tk):
             style="StatusGood.TLabel",
         )
         self.status_dot.pack(side="left", padx=(0, 8))
-        ttk.Label(
-            status_bar,
-            text="STATO",
-            style="StatusKey.TLabel",
-        ).pack(side="left", padx=(0, 10))
         ttk.Label(
             status_bar,
             textvariable=self.status_var,
@@ -853,9 +810,23 @@ class TranslatorWindow(tk.Tk):
         else:
             self.advanced_frame.grid_remove()
             self.advanced_button.configure(
-                text="Mostra impostazioni avanzate"
+                text="Impostazioni avanzate"
             )
         self._schedule_settings_save()
+
+    def _refresh_output_visibility(self) -> None:
+        output_card = getattr(self, "output_card", None)
+        if output_card is None:
+            return
+        workspace = output_card.master
+        if self.show_text_var.get():
+            output_card.grid()
+            workspace.rowconfigure(1, weight=0)
+            workspace.rowconfigure(2, weight=1)
+        else:
+            output_card.grid_remove()
+            workspace.rowconfigure(1, weight=1)
+            workspace.rowconfigure(2, weight=0)
 
     def _apply_profile(self, _event=None) -> None:
         profile = profile_by_key(profile_key_from_label(self.profile_var.get()))
