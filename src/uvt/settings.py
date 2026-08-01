@@ -36,7 +36,7 @@ class AppSettings:
     auto_ducking: bool = True
     dark_mode: bool = True
     advanced_visible: bool = False
-    window_geometry: str = "1240x780"
+    window_geometry: str = "1280x820"
     overlay_geometry: str = "1000x150+160+650"
     overlay_alpha: float = 0.88
     overlay_font_size: int = 20

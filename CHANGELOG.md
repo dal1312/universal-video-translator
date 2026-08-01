@@ -4,6 +4,8 @@
 
 ## Non rilasciato
 
+- Interfaccia desktop ridisegnata come control room locale, con gerarchia tipografica, navigazione dei flussi e stati operativi più chiari.
+- Layout adattivo con riposizionamento sicuro sul monitor e pannello Live compattato per mantenere sempre visibile l'output.
 - Ponte locale autenticato tra popup e applicazione con stato, profilo e latenza in tempo reale.
 - Fallback `uvt://` utilizzato soltanto quando UVT non è ancora in esecuzione.
 - Protezione anti-ritardo che scarta i segmenti audio ormai obsoleti.

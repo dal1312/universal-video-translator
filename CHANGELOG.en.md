@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Desktop UI redesigned as a local control room with clearer typography, flow navigation, and operating states.
+- Adaptive layout with safe on-screen positioning and a compact Live panel that keeps translation output visible.
 - Authenticated local bridge between popup and application with live state, profile, and latency.
 - `uvt://` is now only a fallback when UVT is not already running.
 - Latency guard discards obsolete queued audio segments.

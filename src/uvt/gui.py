@@ -81,8 +81,8 @@ class TranslatorWindow(tk.Tk):
         try:
             self.geometry(saved.window_geometry)
         except tk.TclError:
-            self.geometry("1240x780")
-        self.minsize(1040, 680)
+            self.geometry("1280x820")
+        self.minsize(1120, 720)
         self.player: SubtitlePlayer | None = None
         self.progressive: ProgressiveDubPlayer | None = None
         self.live: LiveTranslator | None = None
@@ -187,6 +187,11 @@ class TranslatorWindow(tk.Tk):
             self._schedule_hotkey_poll()
         self._updater = AutomaticUpdater(__version__)
         self._start_worker(self._check_updates, name="uvt-update-check")
+        try:
+            self.after_idle(self._ensure_window_on_screen)
+        except (RecursionError, RuntimeError, tk.TclError):
+            # Tk may be intentionally absent in headless startup tests.
+            pass
 
     def _start_worker(
         self,
@@ -206,6 +211,16 @@ class TranslatorWindow(tk.Tk):
             self._workers.add(thread)
         thread.start()
         return thread
+
+    def _ensure_window_on_screen(self) -> None:
+        if self.state() == "zoomed":
+            return
+        self.update_idletasks()
+        width = min(self.winfo_width(), self.winfo_screenwidth())
+        height = min(self.winfo_height(), self.winfo_screenheight())
+        x = max(0, min(self.winfo_x(), self.winfo_screenwidth() - width))
+        y = max(0, min(self.winfo_y(), self.winfo_screenheight() - height))
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _join_workers(self, timeout: float = 2.0) -> bool:
         deadline = time.monotonic() + max(0.0, timeout)
@@ -244,50 +259,58 @@ class TranslatorWindow(tk.Tk):
             pass
 
     def _build(self) -> None:
-        root = ttk.Frame(self, padding=(28, 24, 28, 22))
+        root = ttk.Frame(self, padding=(24, 20, 24, 18))
         root.pack(fill="both", expand=True)
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
 
         header = ttk.Frame(root)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 24))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 18))
         header.columnconfigure(0, weight=1)
         title_box = ttk.Frame(header)
         title_box.grid(row=0, column=0, sticky="w")
+        brand_mark = ttk.Label(title_box, text="UVT", style="BrandMark.TLabel")
+        brand_mark.configure(width=4, anchor="center")
+        brand_mark.grid(row=0, column=0, rowspan=3, sticky="nsw", padx=(0, 14))
         ttk.Label(
             title_box,
-            text="LOCAL AI  •  PRIVATE BY DESIGN",
+            text="LOCAL AI / PRIVATE BY DESIGN",
             style="Eyebrow.TLabel",
-        ).pack(anchor="w", pady=(0, 4))
+        ).grid(row=0, column=1, sticky="w")
         ttk.Label(
             title_box,
             text="Universal Video Translator",
             style="Title.TLabel",
-        ).pack(anchor="w")
+        ).grid(row=1, column=1, sticky="w")
         ttk.Label(
             title_box,
-            text="Traduzione, doppiaggio e sottotitoli in tempo reale sul tuo PC",
+            text="Media, live audio e documenti. Tutto locale.",
             style="Subtitle.TLabel",
-        ).pack(anchor="w", pady=(2, 0))
+        ).grid(row=2, column=1, sticky="w", pady=(1, 0))
+        ttk.Label(
+            header,
+            text=f"v{__version__}",
+            style="VersionBadge.TLabel",
+        ).grid(row=0, column=1, padx=(12, 4), sticky="e")
         ttk.Button(
             header,
-            text="Collega browser",
+            text="Estensione browser",
             command=self._connect_browser,
             style="Ghost.TButton",
-        ).grid(row=0, column=1, padx=(12, 0), sticky="e")
+        ).grid(row=0, column=2, padx=(8, 0), sticky="e")
         self.theme_button = ttk.Button(
             header,
             text="Tema chiaro",
             command=self._toggle_theme,
             style="Ghost.TButton",
         )
-        self.theme_button.grid(row=0, column=2, padx=(8, 0))
+        self.theme_button.grid(row=0, column=3, padx=(8, 0))
 
         body = ttk.Panedwindow(root, orient="horizontal", style="Main.TPanedwindow")
         body.grid(row=1, column=0, sticky="nsew")
 
         settings_card = ttk.Frame(body, style="Surface.TFrame")
-        settings_card.configure(width=310)
+        settings_card.configure(width=300)
         settings_card.columnconfigure(0, weight=1)
         settings_card.rowconfigure(0, weight=1)
         panel_color = self.style.lookup("Card.TFrame", "background")
@@ -306,7 +329,7 @@ class TranslatorWindow(tk.Tk):
         self.settings_canvas.grid(row=0, column=0, sticky="nsew")
         settings_scrollbar.grid(row=0, column=1, sticky="ns")
         settings = ttk.Frame(
-            self.settings_canvas, padding=22, style="Card.TFrame"
+            self.settings_canvas, padding=(20, 20, 18, 22), style="Card.TFrame"
         )
         settings.columnconfigure(0, weight=1)
         settings_window = self.settings_canvas.create_window(
@@ -336,14 +359,14 @@ class TranslatorWindow(tk.Tk):
         )
         body.add(settings_card, weight=1)
         ttk.Label(
-            settings, text="CONFIGURAZIONE", style="CardSection.TLabel"
+            settings, text="CONTROL PANEL", style="CardSection.TLabel"
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
             settings,
-            text="Imposta una volta, usa in entrambe le modalità.",
+            text="Motore, voce e performance condivisi tra tutti i flussi.",
             style="CardSubtitle.TLabel",
-            wraplength=270,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 18))
+            wraplength=252,
+        ).grid(row=1, column=0, sticky="w", pady=(5, 20))
 
         ttk.Label(settings, text="Modello Ollama", style="Card.TLabel").grid(
             row=2, column=0, sticky="w"
@@ -481,14 +504,14 @@ class TranslatorWindow(tk.Tk):
         ).grid(row=6, column=0, sticky="ew", pady=(12, 0))
         self.advanced_frame.grid_remove()
 
-        workspace = ttk.Frame(body, padding=(22, 0, 0, 0))
+        workspace = ttk.Frame(body, padding=(18, 0, 0, 0))
         workspace.columnconfigure(0, weight=1)
         workspace.rowconfigure(3, weight=1)
         body.add(workspace, weight=3)
 
         ttk.Label(
             workspace,
-            text="SORGENTE DA TRADURRE",
+            text="SCEGLI IL FLUSSO",
             style="Section.TLabel",
         ).grid(row=0, column=0, sticky="w")
 
@@ -498,21 +521,21 @@ class TranslatorWindow(tk.Tk):
         source_selector.grid(row=1, column=0, sticky="w", pady=(8, 10))
         self.file_mode_button = ttk.Button(
             source_selector,
-            text="File o URL",
+            text="01  MEDIA",
             command=lambda: self._select_source_mode("file"),
             style="ModeSelected.TButton",
         )
         self.file_mode_button.pack(side="left")
         self.live_mode_button = ttk.Button(
             source_selector,
-            text="Browser o audio PC",
+            text="02  LIVE AUDIO",
             command=lambda: self._select_source_mode("live"),
             style="Mode.TButton",
         )
         self.live_mode_button.pack(side="left", padx=(4, 0))
         self.document_mode_button = ttk.Button(
             source_selector,
-            text="Documenti",
+            text="03  DOCUMENTI",
             command=lambda: self._select_source_mode("document"),
             style="Mode.TButton",
         )
@@ -526,7 +549,7 @@ class TranslatorWindow(tk.Tk):
         )
         self.video_tab = video_tab
         self.overlay_tab = ttk.Frame(
-            mode_stage, padding=22, style="Surface.TFrame"
+            mode_stage, padding=(22, 14), style="Surface.TFrame"
         )
         self.document_tab = ttk.Frame(
             mode_stage, padding=22, style="Surface.TFrame"
@@ -684,7 +707,7 @@ class TranslatorWindow(tk.Tk):
                 "automaticamente la voce italiana."
             ),
             style="CardSubtitle.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(3, 14))
+        ).grid(row=1, column=0, sticky="w", pady=(3, 10))
         ttk.Label(
             self.overlay_tab, text="INGRESSO AUDIO", style="CardSection.TLabel"
         ).grid(
@@ -697,25 +720,27 @@ class TranslatorWindow(tk.Tk):
             state="readonly",
         )
         self.capture_combo.grid(
-            row=3, column=0, sticky="ew", pady=(7, 12), ipady=3
+            row=3, column=0, sticky="ew", pady=(7, 8), ipady=3
         )
+        overlay_options = ttk.Frame(self.overlay_tab, style="Card.TFrame")
+        overlay_options.grid(row=4, column=0, sticky="ew", pady=(0, 12))
         ttk.Checkbutton(
-            self.overlay_tab,
+            overlay_options,
             text="Riproduci anche la voce italiana",
             variable=self.live_voice_var,
             style="Card.TCheckbutton",
-        ).grid(row=4, column=0, sticky="w", pady=(0, 16))
+        ).pack(side="left")
         ttk.Checkbutton(
-            self.overlay_tab,
+            overlay_options,
             text="Abbassa automaticamente l’audio originale durante la voce",
             variable=self.auto_ducking_var,
             style="Card.TCheckbutton",
-        ).grid(row=5, column=0, sticky="w", pady=(0, 16))
+        ).pack(side="left", padx=(18, 0))
 
         overlay_actions = ttk.Frame(
             self.overlay_tab, style="Card.TFrame"
         )
-        overlay_actions.grid(row=6, column=0, sticky="w")
+        overlay_actions.grid(row=5, column=0, sticky="ew")
         self.live_button = ttk.Button(
             overlay_actions,
             text="Avvia AI Overlay OS",
@@ -731,28 +756,25 @@ class TranslatorWindow(tk.Tk):
             style="Secondary.TButton",
         )
         self.overlay_button.pack(side="left")
-        diagnostics_row = ttk.Frame(self.overlay_tab, style="Card.TFrame")
-        diagnostics_row.grid(row=7, column=0, sticky="ew", pady=(16, 0))
-        diagnostics_row.columnconfigure(0, weight=1)
         ttk.Label(
-            diagnostics_row,
+            overlay_actions,
             textvariable=self.latency_var,
             style="CardAccent.TLabel",
-        ).grid(row=0, column=0, sticky="w")
+        ).pack(side="left", padx=(18, 0))
         ttk.Button(
-            diagnostics_row,
+            overlay_actions,
             text="Copia diagnostica",
             command=self._copy_diagnostics,
             style="Subtle.TButton",
-        ).grid(row=0, column=1, sticky="e")
+        ).pack(side="right")
         ttk.Label(
             self.overlay_tab,
             textvariable=self.latency_detail_var,
             style="CardSubtitle.TLabel",
-        ).grid(row=8, column=0, sticky="w", pady=(5, 0))
+        ).grid(row=6, column=0, sticky="w", pady=(5, 0))
 
         output_card = ttk.Frame(
-            workspace, padding=20, style="Surface.TFrame"
+            workspace, padding=16, style="Surface.TFrame"
         )
         output_card.grid(
             row=3, column=0, sticky="nsew", pady=(16, 0)
@@ -776,7 +798,7 @@ class TranslatorWindow(tk.Tk):
             style="Card.TCheckbutton",
         ).grid(row=0, column=1, sticky="e")
         self.output = tk.Text(
-            output_card, wrap="word", height=12, state="disabled"
+            output_card, wrap="word", height=3, state="disabled"
         )
         self.output.grid(row=1, column=0, sticky="nsew")
         self._apply_text_colors()
@@ -1522,28 +1544,29 @@ class TranslatorWindow(tk.Tk):
     def _apply_theme(self) -> None:
         if self.dark_mode:
             bg, panel, fg, field, accent, border = (
-                "#090d14",
-                "#121925",
-                "#f5f7fb",
-                "#1a2331",
-                "#5b8cff",
-                "#293548",
+                "#070a10",
+                "#101722",
+                "#f4f7fb",
+                "#172131",
+                "#6c8bff",
+                "#26354a",
             )
         else:
             bg, panel, fg, field, accent, border = (
-                "#f1f4f9",
+                "#f3f5f8",
                 "#ffffff",
-                "#152033",
-                "#f6f8fc",
-                "#2f6fed",
-                "#d8e0eb",
+                "#172033",
+                "#f7f9fc",
+                "#315ef5",
+                "#d7dee8",
             )
-        muted = "#93a0b4" if self.dark_mode else "#637083"
+        muted = "#8290a5" if self.dark_mode else "#64748b"
+        hover = "#7f9aff" if self.dark_mode else "#244bd1"
         self.configure(bg=bg)
         if "settings_canvas" in self.__dict__:
             self.settings_canvas.configure(background=panel)
         self.style.configure(
-            ".", background=bg, foreground=fg, font=("Segoe UI", 10)
+            ".", background=bg, foreground=fg, font=("Segoe UI Variable Text", 10)
         )
         self.style.configure("TFrame", background=bg)
         self.style.configure("Main.TPanedwindow", background=bg)
@@ -1572,61 +1595,76 @@ class TranslatorWindow(tk.Tk):
             "Eyebrow.TLabel",
             background=bg,
             foreground=accent,
-            font=("Segoe UI Semibold", 9),
+            font=("Segoe UI Variable Text Semibold", 8),
+        )
+        self.style.configure(
+            "BrandMark.TLabel",
+            background=accent,
+            foreground="#ffffff",
+            font=("Segoe UI Variable Display Semibold", 14),
+            padding=(12, 10),
+            anchor="center",
+        )
+        self.style.configure(
+            "VersionBadge.TLabel",
+            background=field,
+            foreground=muted,
+            font=("Cascadia Mono", 8),
+            padding=(9, 6),
         )
         self.style.configure(
             "Title.TLabel",
             background=bg,
             foreground=fg,
-            font=("Segoe UI Semibold", 26),
+            font=("Segoe UI Variable Display Semibold", 22),
         )
         self.style.configure(
             "PanelTitle.TLabel",
             background=bg,
             foreground=fg,
-            font=("Segoe UI Semibold", 15),
+            font=("Segoe UI Variable Display Semibold", 16),
         )
         self.style.configure(
             "CardPanelTitle.TLabel",
             background=panel,
             foreground=fg,
-            font=("Segoe UI Semibold", 15),
+            font=("Segoe UI Variable Display Semibold", 17),
         )
         self.style.configure(
             "Section.TLabel",
             background=bg,
             foreground=accent,
-            font=("Segoe UI Semibold", 9),
+            font=("Segoe UI Variable Text Semibold", 8),
         )
         self.style.configure(
             "CardSection.TLabel",
             background=panel,
             foreground=accent,
-            font=("Segoe UI Semibold", 9),
+            font=("Segoe UI Variable Text Semibold", 8),
         )
         self.style.configure(
             "Subtitle.TLabel",
             background=bg,
             foreground=muted,
-            font=("Segoe UI", 10),
+            font=("Segoe UI Variable Text", 10),
         )
         self.style.configure(
             "CardSubtitle.TLabel",
             background=panel,
             foreground=muted,
-            font=("Segoe UI", 10),
+            font=("Segoe UI Variable Text", 9),
         )
         self.style.configure(
             "Accent.TLabel",
             background=bg,
             foreground=accent,
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI Variable Text Semibold", 10),
         )
         self.style.configure(
             "CardAccent.TLabel",
             background=panel,
             foreground=accent,
-            font=("Segoe UI Semibold", 10),
+            font=("Segoe UI Variable Text Semibold", 10),
         )
         self.style.configure(
             "Status.TLabel", background=panel, foreground=fg
@@ -1635,22 +1673,22 @@ class TranslatorWindow(tk.Tk):
             "StatusKey.TLabel",
             background=panel,
             foreground=muted,
-            font=("Segoe UI Semibold", 8),
+            font=("Segoe UI Variable Text Semibold", 8),
         )
         self.style.configure(
             "StatusGood.TLabel",
             background=panel,
-            foreground="#22c55e",
+            foreground="#34d399",
         )
         self.style.configure(
             "StatusBusy.TLabel",
             background=panel,
-            foreground="#f59e0b",
+            foreground="#fbbf24",
         )
         self.style.configure(
             "StatusError.TLabel",
             background=panel,
-            foreground="#ef4444",
+            foreground="#fb7185",
         )
         self.style.configure(
             "TEntry",
@@ -1660,7 +1698,7 @@ class TranslatorWindow(tk.Tk):
             bordercolor=border,
             lightcolor=border,
             darkcolor=border,
-            padding=(10, 8),
+            padding=(11, 9),
         )
         self.style.configure(
             "TCombobox",
@@ -1669,7 +1707,7 @@ class TranslatorWindow(tk.Tk):
             bordercolor=border,
             lightcolor=border,
             darkcolor=border,
-            padding=(8, 6),
+            padding=(10, 8),
         )
         self.style.map(
             "TCombobox",
@@ -1681,8 +1719,8 @@ class TranslatorWindow(tk.Tk):
             background=field,
             foreground=fg,
             borderwidth=0,
-            padding=(13, 8),
-            font=("Segoe UI Semibold", 10),
+            padding=(14, 9),
+            font=("Segoe UI Variable Text Semibold", 9),
         )
         self.style.map(
             "TButton",
@@ -1690,24 +1728,25 @@ class TranslatorWindow(tk.Tk):
             foreground=[("disabled", muted)],
         )
         self.style.configure(
-            "Ghost.TButton", background=field, foreground=fg, padding=(14, 9)
+            "Ghost.TButton", background=field, foreground=fg, padding=(13, 9)
         )
         self.style.configure(
             "Secondary.TButton",
             background=field,
             foreground=fg,
-            padding=(14, 9),
+            padding=(15, 10),
         )
         self.style.map(
             "Secondary.TButton",
-            background=[("active", border), ("disabled", panel)],
+            background=[("active", border), ("disabled", field)],
             foreground=[("disabled", muted)],
         )
         self.style.configure(
             "Mode.TButton",
             background=panel,
             foreground=muted,
-            padding=(16, 9),
+            padding=(17, 10),
+            font=("Segoe UI Variable Text Semibold", 9),
         )
         self.style.map(
             "Mode.TButton",
@@ -1718,11 +1757,12 @@ class TranslatorWindow(tk.Tk):
             "ModeSelected.TButton",
             background=accent,
             foreground="white",
-            padding=(16, 9),
+            padding=(17, 10),
+            font=("Segoe UI Variable Text Semibold", 9),
         )
         self.style.map(
             "ModeSelected.TButton",
-            background=[("active", "#60a5fa"), ("disabled", accent)],
+            background=[("active", hover), ("disabled", accent)],
             foreground=[("disabled", "white")],
         )
         self.style.configure(
@@ -1731,7 +1771,7 @@ class TranslatorWindow(tk.Tk):
             foreground=muted,
             borderwidth=1,
             bordercolor=border,
-            padding=(13, 8),
+            padding=(13, 9),
         )
         self.style.map(
             "Subtle.TButton",
@@ -1740,15 +1780,15 @@ class TranslatorWindow(tk.Tk):
         )
         self.style.configure(
             "Danger.TButton",
-            background="#3a2026" if self.dark_mode else "#fff1f2",
+            background="#321b24" if self.dark_mode else "#fff1f3",
             foreground="#fb7185" if self.dark_mode else "#be123c",
-            padding=(14, 9),
+            padding=(15, 10),
         )
         self.style.map(
             "Danger.TButton",
             background=[
-                ("active", "#542631" if self.dark_mode else "#ffe4e6"),
-                ("disabled", panel),
+                ("active", "#48212d" if self.dark_mode else "#ffe4e8"),
+                ("disabled", field),
             ],
             foreground=[("disabled", muted)],
         )
@@ -1756,13 +1796,13 @@ class TranslatorWindow(tk.Tk):
             "Primary.TButton",
             background=accent,
             foreground="white",
-            font=("Segoe UI Semibold", 10),
-            padding=(16, 9),
+            font=("Segoe UI Variable Text Semibold", 10),
+            padding=(18, 10),
         )
         self.style.map(
             "Primary.TButton",
             background=[
-                ("active", "#60a5fa"),
+                ("active", hover),
                 ("disabled", "#475569"),
             ],
             foreground=[("disabled", "#cbd5e1")],
@@ -1801,7 +1841,7 @@ class TranslatorWindow(tk.Tk):
             background=panel,
             foreground=fg,
             padding=(18, 11),
-            font=("Segoe UI Semibold", 10),
+            font=("Segoe UI Variable Text Semibold", 10),
         )
         self.style.map(
             "TNotebook.Tab",
@@ -1842,8 +1882,16 @@ class TranslatorWindow(tk.Tk):
             bg=field,
             fg=fg,
             insertbackground=fg,
-            selectbackground="#2563eb",
+            selectbackground="#315ef5",
             relief="flat",
+            padx=16,
+            pady=14,
+            spacing1=2,
+            spacing3=8,
+            font=("Segoe UI Variable Text", 11),
+            highlightthickness=1,
+            highlightbackground="#26354a" if self.dark_mode else "#d7dee8",
+            highlightcolor="#6c8bff" if self.dark_mode else "#315ef5",
         )
         if hasattr(self, "text_menu"):
             self.text_menu.configure(bg=field, fg=fg)
