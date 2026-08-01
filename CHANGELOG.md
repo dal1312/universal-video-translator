@@ -4,6 +4,8 @@
 
 ## Non rilasciato
 
+- Pannello impostazioni contestuale, chiuso all'avvio, con rilevamento automatico dei componenti e fallback alla voce Windows quando Kokoro non è disponibile.
+- Supervisore runtime centralizzato per worker e arresto coordinato delle risorse multimediali.
 - Interfaccia desktop ridisegnata come control room locale, con gerarchia tipografica, navigazione dei flussi e stati operativi più chiari.
 - Layout adattivo con riposizionamento sicuro sul monitor e pannello Live compattato per mantenere sempre visibile l'output.
 - Ponte locale autenticato tra popup e applicazione con stato, profilo e latenza in tempo reale.

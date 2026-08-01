@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Contextual settings panel, collapsed at startup, with automatic component detection and Windows voice fallback when Kokoro is unavailable.
+- Central runtime supervisor for background workers and coordinated multimedia-resource shutdown.
 - Desktop UI redesigned as a local control room with clearer typography, flow navigation, and operating states.
 - Adaptive layout with safe on-screen positioning and a compact Live panel that keeps translation output visible.
 - Authenticated local bridge between popup and application with live state, profile, and latency.

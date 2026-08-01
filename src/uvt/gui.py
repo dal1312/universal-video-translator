@@ -55,6 +55,8 @@ from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
 from .profiles import PROFILE_LABELS, profile_by_key, profile_key_from_label
+from .readiness import SystemReadiness, detect_system_readiness
+from .runtime import RuntimeSupervisor
 from .session import SessionMode, TranslationSession
 from .settings import AppSettings, SettingsStore
 from .tts import KOKORO_VOICES, windows_voice_names
@@ -105,8 +107,7 @@ class TranslatorWindow(tk.Tk):
         self._live_run_id = 0
         self._document_run_id = 0
         self._document_cancel = threading.Event()
-        self._workers: set[threading.Thread] = set()
-        self._workers_lock = threading.Lock()
+        self._runtime = RuntimeSupervisor()
         self._capture_devices_loaded = False
         self.preview = MediaPreview()
         self.workflow = TranslationWorkflow(
@@ -141,7 +142,7 @@ class TranslatorWindow(tk.Tk):
         self.whisper_var = tk.StringVar(value=saved.whisper_model)
         self.speech_engine_var = tk.StringVar(value=saved.speech_engine)
         self.voice_var = tk.StringVar(value=saved.voice)
-        self.show_text_var = tk.BooleanVar(value=saved.show_text)
+        self.show_text_var = tk.BooleanVar(value=False)
         self.live_voice_var = tk.BooleanVar(value=saved.live_voice)
         self.capture_device_var = tk.StringVar(
             value=saved.capture_device or "Audio di sistema (predefinito)"
@@ -175,6 +176,10 @@ class TranslatorWindow(tk.Tk):
             self._load_capture_devices,
             name="uvt-audio-discovery",
         )
+        self._start_worker(
+            self._detect_readiness,
+            name="uvt-readiness",
+        )
         self.protocol("WM_DELETE_WINDOW", self._request_close)
         self._tray = TrayController(
             on_open=lambda: self.after(0, self._restore_from_background),
@@ -199,18 +204,7 @@ class TranslatorWindow(tk.Tk):
         *args,
         name: str,
     ) -> threading.Thread:
-        def run() -> None:
-            try:
-                target(*args)
-            finally:
-                with self._workers_lock:
-                    self._workers.discard(thread)
-
-        thread = threading.Thread(target=run, name=name, daemon=True)
-        with self._workers_lock:
-            self._workers.add(thread)
-        thread.start()
-        return thread
+        return self._runtime.start(target, *args, name=name)
 
     def _ensure_window_on_screen(self) -> None:
         if self.state() == "zoomed":
@@ -223,15 +217,7 @@ class TranslatorWindow(tk.Tk):
         self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _join_workers(self, timeout: float = 2.0) -> bool:
-        deadline = time.monotonic() + max(0.0, timeout)
-        current = threading.current_thread()
-        with self._workers_lock:
-            workers = tuple(self._workers)
-        for worker in workers:
-            if worker is current:
-                continue
-            worker.join(max(0.0, deadline - time.monotonic()))
-        return not any(worker.is_alive() for worker in workers if worker is not current)
+        return self._runtime.join(timeout)
 
     def _call_in_ui(self, callback, *args) -> None:
         if self._closing:
@@ -281,22 +267,30 @@ class TranslatorWindow(tk.Tk):
         ).grid(row=1, column=0, sticky="w", pady=(1, 0))
         ttk.Button(
             header,
+            text="Impostazioni",
+            command=self._toggle_settings_panel,
+            style="Ghost.TButton",
+        ).grid(row=0, column=1, rowspan=2, padx=(8, 0), sticky="e")
+        ttk.Button(
+            header,
             text="Estensione browser",
             command=self._connect_browser,
             style="Ghost.TButton",
-        ).grid(row=0, column=1, rowspan=2, padx=(8, 0), sticky="e")
+        ).grid(row=0, column=2, rowspan=2, padx=(8, 0), sticky="e")
         self.theme_button = ttk.Button(
             header,
             text="Tema chiaro",
             command=self._toggle_theme,
             style="Ghost.TButton",
         )
-        self.theme_button.grid(row=0, column=2, rowspan=2, padx=(8, 0))
+        self.theme_button.grid(row=0, column=3, rowspan=2, padx=(8, 0))
 
         body = ttk.Panedwindow(root, orient="horizontal", style="Main.TPanedwindow")
         body.grid(row=1, column=0, sticky="nsew")
+        self.main_body = body
 
         settings_card = ttk.Frame(body, style="Surface.TFrame")
+        self.settings_card = settings_card
         settings_card.configure(width=270)
         settings_card.columnconfigure(0, weight=1)
         settings_card.rowconfigure(0, weight=1)
@@ -484,9 +478,12 @@ class TranslatorWindow(tk.Tk):
         self.advanced_frame.grid_remove()
 
         workspace = ttk.Frame(body, padding=(18, 0, 0, 0))
+        self.workspace = workspace
         workspace.columnconfigure(0, weight=1)
         workspace.rowconfigure(1, weight=1)
         body.add(workspace, weight=3)
+        body.forget(settings_card)
+        self.settings_visible = False
 
         source_selector = ttk.Frame(
             workspace, padding=4, style="Surface.TFrame"
@@ -813,6 +810,14 @@ class TranslatorWindow(tk.Tk):
                 text="Impostazioni avanzate"
             )
         self._schedule_settings_save()
+
+    def _toggle_settings_panel(self) -> None:
+        if self.settings_visible:
+            self.main_body.forget(self.settings_card)
+            self.settings_visible = False
+            return
+        self.main_body.insert(0, self.settings_card, weight=1)
+        self.settings_visible = True
 
     def _refresh_output_visibility(self) -> None:
         output_card = getattr(self, "output_card", None)
@@ -2039,6 +2044,21 @@ class TranslatorWindow(tk.Tk):
         self.voice_combo.configure(values=values)
         self.voice_var.set(values[0])
 
+    def _detect_readiness(self) -> None:
+        readiness = detect_system_readiness()
+        self._call_in_ui(self._apply_readiness, readiness)
+
+    def _apply_readiness(self, readiness: SystemReadiness) -> None:
+        self._readiness = readiness
+        if (
+            self.speech_engine_var.get() == "kokoro"
+            and not readiness.available("kokoro")
+        ):
+            self.speech_engine_var.set("windows")
+            self._refresh_voices()
+        if self.status_var.get() in {"Pronto", "Sistema pronto"}:
+            self.status_var.set(readiness.summary())
+
     def _load_models(self) -> None:
         try:
             models = OllamaTranslator(model="translategemma:latest").list_models()
@@ -2209,6 +2229,7 @@ class TranslatorWindow(tk.Tk):
         if self._closing:
             return
         self._closing = True
+        self._runtime.begin_shutdown()
         document_cancel = getattr(self, "_document_cancel", None)
         if document_cancel is not None:
             document_cancel.set()
@@ -2237,22 +2258,17 @@ class TranslatorWindow(tk.Tk):
         self._settings_save_job = None
         if self._browser_bridge is not None:
             self._browser_bridge.close()
-        failures: list[str] = []
-        for name, action in (
-            ("progressive", self.progressive.stop if self.progressive else None),
-            ("player", self.player.stop if self.player else None),
-            ("preview", self.preview.stop),
-            ("live", self.live.stop if self.live else None),
-        ):
-            if action is None:
-                continue
-            try:
-                stopped = action()
-                if stopped is False:
-                    failures.append(name)
-            except Exception as error:
-                failures.append(name)
-                log_exception("shutdown", f"{name}_stop_failed", error)
+        failures = self._runtime.stop_named(
+            (
+                ("progressive", self.progressive.stop if self.progressive else None),
+                ("player", self.player.stop if self.player else None),
+                ("preview", self.preview.stop),
+                ("live", self.live.stop if self.live else None),
+            ),
+            on_error=lambda name, error: log_exception(
+                "shutdown", f"{name}_stop_failed", error
+            ),
+        )
         workers_stopped = self._join_workers()
         if not workers_stopped:
             failures.append("workers")

@@ -52,7 +52,7 @@ Usa questa modalita' per tradurre in tempo reale cio' che senti nel browser.
 4. Premi l'estensione nel browser oppure avvia manualmente **AI Overlay OS**.
 5. Il browser viene instradato su `CABLE Input`; le casse/cuffie restano come uscita predefinita Windows.
 
-Scegli il profilo **Rapido**, **Bilanciato** o **Qualita** in base al compromesso desiderato. Lo streaming usa segmentazione vocale basata su pause (VAD), produce trascrizioni/traduzioni incrementali e riduce automaticamente il volume originale durante la voce italiana. La sincronizzazione adattiva regola gradualmente la velocità della voce per recuperare lo scarto senza variazioni brusche. Il pannello mostra latenza, mediana, velocità adattiva e dettaglio della pipeline.
+Scegli il profilo **Rapido**, **Bilanciato** o **Qualita** in base al compromesso desiderato. Lo streaming usa segmentazione vocale basata su pause (VAD), produce trascrizioni/traduzioni incrementali e riduce automaticamente il volume originale durante la voce italiana. La sincronizzazione adattiva regola gradualmente la velocità della voce per recuperare lo scarto senza variazioni brusche. Il pannello Live mostra la latenza sintetica; la diagnostica completa resta disponibile su richiesta.
 
 Se VB-Cable non viene rilevato, l'avvio automatico da estensione viene bloccato per evitare di catturare l'audio di sistema sbagliato.
 
