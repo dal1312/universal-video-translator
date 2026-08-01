@@ -76,7 +76,10 @@ class SingleInstanceBroker:
         return True
 
     def forward_overlay(self, uri: str) -> bool:
-        return self._send({"command": "overlay", "uri": uri}) in {
+        return self.forward_browser_request(uri)
+
+    def forward_browser_request(self, uri: str) -> bool:
+        return self._send({"command": "browser", "uri": uri}) in {
             "accepted",
             "duplicate",
         }
@@ -177,12 +180,14 @@ class SingleInstanceBroker:
             if command == "focus":
                 self._events.put(InstanceEvent("focus"))
                 return "accepted"
-            if command != "overlay" or not isinstance(payload.get("uri"), str):
+            if command not in {"overlay", "browser"} or not isinstance(
+                payload.get("uri"), str
+            ):
                 return "invalid"
             request = parse_browser_request(payload["uri"])
             if not claim_browser_request(request):
                 return "duplicate"
-            self._events.put(InstanceEvent("overlay", request))
+            self._events.put(InstanceEvent("browser", request))
             return "accepted"
         except (BrowserProtocolError, InstanceIPCError, OSError, ValueError) as error:
             log_exception("ipc", "message_rejected", error)

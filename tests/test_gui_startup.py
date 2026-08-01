@@ -1,6 +1,8 @@
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import uvt.gui as gui
+from uvt.session import SessionMode, TranslationSession
 from uvt.settings import AppSettings
 
 
@@ -155,10 +157,59 @@ def test_browser_request_selects_overlay_without_touching_source() -> None:
 
     gui.TranslatorWindow._show_browser_overlay(window)
 
-    window.mode_notebook.select.assert_called_once_with(window.overlay_tab)
+    window._select_source_mode.assert_called_once_with("live")
     window.file_var.set.assert_not_called()
     window.deiconify.assert_called_once_with()
     window.lift.assert_called_once_with()
+
+
+def test_background_browser_overlay_does_not_focus_desktop() -> None:
+    window = Mock()
+
+    gui.TranslatorWindow._show_browser_overlay(window, False)
+
+    window._select_source_mode.assert_called_once_with("live")
+    window.deiconify.assert_not_called()
+    window.lift.assert_not_called()
+    window.focus_force.assert_not_called()
+
+
+def test_source_selector_shows_one_pipeline() -> None:
+    window = SimpleNamespace(
+        session=TranslationSession(),
+        source_mode_var=Mock(),
+        video_tab=Mock(),
+        overlay_tab=Mock(),
+        file_mode_button=Mock(),
+        live_mode_button=Mock(),
+        status_var=Mock(),
+    )
+
+    gui.TranslatorWindow._select_source_mode(window, "live")
+
+    window.source_mode_var.set.assert_called_once_with("live")
+    window.video_tab.grid_remove.assert_called_once_with()
+    window.overlay_tab.grid.assert_called_once_with()
+
+
+def test_source_selector_does_not_switch_active_session() -> None:
+    session = TranslationSession()
+    session.begin(SessionMode.FILE)
+    window = SimpleNamespace(
+        session=session,
+        source_mode_var=Mock(),
+        video_tab=Mock(),
+        overlay_tab=Mock(),
+        file_mode_button=Mock(),
+        live_mode_button=Mock(),
+        status_var=Mock(),
+    )
+
+    gui.TranslatorWindow._select_source_mode(window, "live")
+
+    window.source_mode_var.set.assert_not_called()
+    window.overlay_tab.grid.assert_not_called()
+    window.status_var.set.assert_called_once()
 
 
 def test_scheduled_browser_overlay_starts_live() -> None:
@@ -167,7 +218,7 @@ def test_scheduled_browser_overlay_starts_live() -> None:
 
     gui.TranslatorWindow._start_browser_overlay(window)
 
-    window._show_browser_overlay.assert_called_once_with()
+    window._show_browser_overlay.assert_called_once_with(False)
     window._toggle_live.assert_called_once_with(require_browser_routing=True)
     window._start.assert_not_called()
 

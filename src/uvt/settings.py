@@ -15,6 +15,7 @@ _LANGUAGES = {"auto", "inglese", "spagnolo", "francese", "tedesco"}
 _WHISPER_MODELS = {"tiny", "base", "small", "medium"}
 _SPEECH_ENGINES = {"kokoro", "windows"}
 _BROWSERS = {"firefox", "chrome", "edge", "nessuno"}
+_PERFORMANCE_PROFILES = {"rapido", "bilanciato", "qualita"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,8 @@ class AppSettings:
     capture_device: str = ""
     cookies_browser: str = "nessuno"
     routing_browser: str = "firefox"
+    performance_profile: str = "rapido"
+    auto_ducking: bool = True
     dark_mode: bool = True
     advanced_visible: bool = False
     window_geometry: str = "1240x780"
@@ -77,6 +80,12 @@ class AppSettings:
                 if candidate.routing_browser in _BROWSERS - {"nessuno"}
                 else defaults.routing_browser
             ),
+            performance_profile=(
+                candidate.performance_profile
+                if candidate.performance_profile in _PERFORMANCE_PROFILES
+                else defaults.performance_profile
+            ),
+            auto_ducking=bool(candidate.auto_ducking),
             dark_mode=bool(candidate.dark_mode),
             advanced_visible=bool(candidate.advanced_visible),
             window_geometry=_text(candidate.window_geometry, defaults.window_geometry, 100),

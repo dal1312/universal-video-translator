@@ -1,0 +1,16 @@
+:root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; }
+body { width: 340px; margin: 0; background: #090d14; color: #f5f7fb; }
+header { padding: 20px 20px 14px; border-bottom: 1px solid #293548; }
+.eyebrow { color: #5b8cff; font-size: 11px; font-weight: 700; letter-spacing: .12em; }
+h1 { margin: 6px 0; font-size: 18px; }
+p { margin: 0; color: #93a0b4; font-size: 12px; line-height: 1.45; }
+main { padding: 16px 20px 20px; display: grid; gap: 10px; }
+label { color: #93a0b4; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+select, button { border: 1px solid #293548; border-radius: 6px; background: #1a2331; color: #f5f7fb; padding: 10px 12px; font-weight: 600; }
+button { cursor: pointer; }
+button:hover { border-color: #5b8cff; }
+.primary { background: #5b8cff; border-color: #5b8cff; color: white; }
+.danger { color: #fb7185; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#status { min-height: 18px; color: #93a0b4; font-size: 12px; padding-top: 4px; }
+.hint { padding-top: 10px; border-top: 1px solid #293548; }

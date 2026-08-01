@@ -134,6 +134,8 @@ class TranslationWorkflow:
         return destination_path
 
     def resolve_input(self, settings: RunSettings) -> Path:
+        if not settings.source.strip():
+            raise ValueError("Seleziona un video, audio o file di sottotitoli.")
         if not is_web_url(settings.source):
             return Path(settings.source)
         if self._download_directory is None:

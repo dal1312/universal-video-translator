@@ -1,49 +1,51 @@
-const MIN_LAUNCH_INTERVAL_MS = 10000;
-let launchPending = false;
+const MIN_LAUNCH_INTERVAL_MS = 1500;
 let lastLaunchAt = 0;
 
 function browserName() {
   const userAgent = navigator.userAgent || "";
-  if (/Edg\//i.test(userAgent)) {
-    return "edge";
-  }
-  if (/Firefox\//i.test(userAgent)) {
-    return "firefox";
-  }
+  if (/Edg\//i.test(userAgent)) return "edge";
+  if (/Firefox\//i.test(userAgent)) return "firefox";
   return "chrome";
 }
 
-async function showBadge(tabId, text, color) {
-  if (typeof tabId !== "number") {
-    return;
-  }
-  await chrome.action.setBadgeText({ tabId, text });
-  await chrome.action.setBadgeBackgroundColor({ tabId, color });
+async function setState(state) {
+  await chrome.storage.local.set({ uvtState: { ...state, updatedAt: Date.now() } });
+  const badge = state.status === "error" ? "ERR" : state.command === "stop" ? "OFF" : "ON";
+  const color = state.status === "error" ? "#b42318" : state.command === "stop" ? "#64748b" : "#18794e";
+  await chrome.action.setBadgeText({ text: badge });
+  await chrome.action.setBadgeBackgroundColor({ color });
 }
 
-chrome.action.onClicked.addListener(async (tab) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== "uvt-command") return false;
   const now = Date.now();
-  if (launchPending || now - lastLaunchAt < MIN_LAUNCH_INTERVAL_MS) {
-    await showBadge(tab.id, "WAIT", "#9a6700");
-    return;
+  if (now - lastLaunchAt < MIN_LAUNCH_INTERVAL_MS) {
+    sendResponse({ ok: false, error: "Attendi un momento prima di riprovare." });
+    return false;
   }
-  launchPending = true;
   lastLaunchAt = now;
+  const command = ["overlay", "stop", "focus"].includes(message.command)
+    ? message.command
+    : "focus";
   const query = new URLSearchParams({
     browser: browserName(),
     requested_at: String(Math.floor(now / 1000)),
     request_id: crypto.randomUUID(),
   });
-  const target = `uvt://overlay?${query.toString()}`;
-
-  try {
-    // Keep the source page intact, but activate the launcher so Chromium's
-    // first-use external-protocol confirmation is visible to the user.
-    await chrome.tabs.create({ url: target, active: true });
-    await showBadge(tab.id, "OK", "#18794e");
-  } catch (_error) {
-    await showBadge(tab.id, "ERR", "#b42318");
-  } finally {
-    launchPending = false;
+  if (command === "overlay" && ["rapido", "bilanciato", "qualita"].includes(message.profile)) {
+    query.set("profile", message.profile);
   }
+  const target = `uvt://${command}?${query.toString()}`;
+  // Keep the video selected: the protocol launcher stays in background while
+  // UVT handles the command locally.
+  chrome.tabs.create({ url: target, active: false })
+    .then(async () => {
+      await setState({ status: "requested", command, profile: message.profile || null });
+      sendResponse({ ok: true });
+    })
+    .catch(async (error) => {
+      await setState({ status: "error", command, message: String(error) });
+      sendResponse({ ok: false, error: String(error) });
+    });
+  return true;
 });

@@ -3,11 +3,12 @@
   "name": "Start UVT AI Overlay",
   "version": "0.2.1",
   "description": "Start the local Universal Video Translator AI Overlay without reading the active page URL.",
-  "permissions": [],
+  "permissions": ["storage"],
   "background": {
     "service_worker": "service-worker.js"
   },
   "action": {
-    "default_title": "Start UVT AI Overlay OS"
+    "default_title": "Universal Video Translator",
+    "default_popup": "popup.html"
   }
 }

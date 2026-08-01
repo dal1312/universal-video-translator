@@ -16,6 +16,8 @@ from .paths import app_paths
 PROTOCOL = "uvt"
 TRANSLATE_ACTION = "translate"
 OVERLAY_ACTION = "overlay"
+STOP_ACTION = "stop"
+FOCUS_ACTION = "focus"
 ACTION = TRANSLATE_ACTION
 REGISTRY_PATH = rf"Software\Classes\{PROTOCOL}"
 SUPPORTED_BROWSERS = frozenset({"chrome", "edge", "firefox"})
@@ -35,6 +37,7 @@ class BrowserRequest:
     requested_at: int | None = None
     request_id: str | None = None
     action: str = TRANSLATE_ACTION
+    profile: str | None = None
 
 
 def make_translate_uri(
@@ -64,6 +67,7 @@ def make_overlay_uri(
     browser: str,
     requested_at: int,
     request_id: str,
+    profile: str | None = None,
 ) -> str:
     browser = browser.lower()
     if browser not in SUPPORTED_BROWSERS:
@@ -75,7 +79,29 @@ def make_overlay_uri(
         "requested_at": requested_at,
         "request_id": _validated_request_id(request_id),
     }
+    if profile in {"rapido", "bilanciato", "qualita"}:
+        query["profile"] = profile
     return f"{PROTOCOL}://{OVERLAY_ACTION}?{urlencode(query)}"
+
+
+def make_control_uri(
+    action: str,
+    *,
+    browser: str,
+    requested_at: int,
+    request_id: str,
+) -> str:
+    if action not in {STOP_ACTION, FOCUS_ACTION}:
+        raise BrowserProtocolError("Comando browser UVT non valido.")
+    browser = browser.lower()
+    if browser not in SUPPORTED_BROWSERS:
+        raise BrowserProtocolError("Browser chiamante non supportato.")
+    query = {
+        "browser": browser,
+        "requested_at": requested_at,
+        "request_id": _validated_request_id(request_id),
+    }
+    return f"{PROTOCOL}://{action}?{urlencode(query)}"
 
 
 def parse_browser_request(value: str) -> BrowserRequest:
@@ -84,6 +110,8 @@ def parse_browser_request(value: str) -> BrowserRequest:
         return parse_overlay_request(value)
     if action == TRANSLATE_ACTION:
         return parse_translate_request(value)
+    if action in {STOP_ACTION, FOCUS_ACTION}:
+        return _parse_control_request(value, action)
     raise BrowserProtocolError("Collegamento UVT non valido.")
 
 
@@ -97,7 +125,9 @@ def parse_overlay_request(value: str) -> BrowserRequest:
     ):
         raise BrowserProtocolError("Collegamento UVT non valido.")
     query = parse_qs(parsed.query, keep_blank_values=True)
-    if not set(query).issubset({"browser", "requested_at", "request_id"}):
+    if not set(query).issubset(
+        {"browser", "requested_at", "request_id", "profile"}
+    ):
         raise BrowserProtocolError("La richiesta Overlay contiene parametri non validi.")
     if any(len(values) != 1 for values in query.values()):
         raise BrowserProtocolError("Il collegamento UVT contiene parametri duplicati.")
@@ -121,11 +151,48 @@ def parse_overlay_request(value: str) -> BrowserRequest:
         if request_id_value is not None
         else None
     )
+    profile = query.get("profile", [None])[0]
+    if profile is not None and profile not in {
+        "rapido",
+        "bilanciato",
+        "qualita",
+    }:
+        raise BrowserProtocolError("Profilo UVT non valido.")
     return BrowserRequest(
         browser=browser,
         requested_at=requested_at,
         request_id=request_id,
         action=OVERLAY_ACTION,
+        profile=profile,
+    )
+
+
+def _parse_control_request(value: str, action: str) -> BrowserRequest:
+    parsed = urlparse(value)
+    if (
+        parsed.scheme.lower() != PROTOCOL
+        or parsed.netloc.lower() != action
+        or parsed.path not in {"", "/"}
+        or parsed.fragment
+    ):
+        raise BrowserProtocolError("Comando browser UVT non valido.")
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    if set(query) != {"browser", "requested_at", "request_id"}:
+        raise BrowserProtocolError("Parametri comando browser UVT non validi.")
+    if any(len(values) != 1 for values in query.values()):
+        raise BrowserProtocolError("Il comando UVT contiene parametri duplicati.")
+    browser = query["browser"][0].lower()
+    if browser not in SUPPORTED_BROWSERS:
+        raise BrowserProtocolError("Browser chiamante non supportato.")
+    try:
+        requested_at = int(query["requested_at"][0])
+    except ValueError as exc:
+        raise BrowserProtocolError("Data della richiesta UVT non valida.") from exc
+    return BrowserRequest(
+        browser=browser,
+        requested_at=requested_at,
+        request_id=_validated_request_id(query["request_id"][0]),
+        action=action,
     )
 
 
@@ -183,7 +250,7 @@ def browser_request_is_fresh(
     now: int | None = None,
 ) -> bool:
     if (
-        request.action != OVERLAY_ACTION
+        request.action not in {OVERLAY_ACTION, STOP_ACTION, FOCUS_ACTION}
         or request.browser is None
         or request.requested_at is None
         or request.request_id is None

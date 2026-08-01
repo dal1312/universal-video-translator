@@ -7,6 +7,7 @@ import pytest
 
 from uvt import audio_routing
 from uvt import gui
+from uvt.controllers import BrowserAudioController, LiveTranslationController
 
 
 def test_route_chrome_to_cable_uses_expected_command(monkeypatch) -> None:
@@ -49,6 +50,36 @@ def test_unsupported_browser_is_rejected() -> None:
         audio_routing.route_browser_to_cable("safari")
 
 
+def test_browser_volume_ducker_restores_exact_original_volume(monkeypatch) -> None:
+    reads = iter(("80", "0"))
+    changes: list[tuple[str, float]] = []
+    monkeypatch.setattr(
+        audio_routing, "_sound_volume_value", lambda *_args: next(reads)
+    )
+    monkeypatch.setattr(
+        audio_routing,
+        "_set_browser_volume",
+        lambda browser, percent: changes.append((browser, percent)),
+    )
+    ducker = audio_routing.BrowserVolumeDucker("chrome", 25)
+
+    assert ducker.duck()
+    assert ducker.restore()
+    assert changes == [("chrome", 20.0), ("chrome", 80.0)]
+
+
+def test_browser_volume_ducker_leaves_muted_browser_untouched(monkeypatch) -> None:
+    reads = iter(("60", "1"))
+    setter = Mock()
+    monkeypatch.setattr(
+        audio_routing, "_sound_volume_value", lambda *_args: next(reads)
+    )
+    monkeypatch.setattr(audio_routing, "_set_browser_volume", setter)
+
+    assert not audio_routing.BrowserVolumeDucker("edge").duck()
+    setter.assert_not_called()
+
+
 def test_gui_routes_and_restores_only_for_cable_output(monkeypatch) -> None:
     route = Mock()
     restore = Mock()
@@ -61,6 +92,11 @@ def test_gui_routes_and_restores_only_for_cable_output(monkeypatch) -> None:
         _audio_router=Mock(route=route, restore=restore),
     )
     window._routing_browser = lambda: gui.TranslatorWindow._routing_browser(window)
+    window.browser_audio_controller = BrowserAudioController(
+        window._audio_router,
+        selected_browser=window._routing_browser,
+        on_status=window.status_var.set,
+    )
 
     gui.TranslatorWindow._route_browser_audio(window)
     gui.TranslatorWindow._restore_browser_audio(window)
@@ -92,6 +128,11 @@ def test_failed_route_attempts_immediate_restore(monkeypatch) -> None:
         _audio_router=Mock(route=route, restore=restore),
     )
     window._routing_browser = lambda: gui.TranslatorWindow._routing_browser(window)
+    window.browser_audio_controller = BrowserAudioController(
+        window._audio_router,
+        selected_browser=window._routing_browser,
+        on_status=window.status_var.set,
+    )
     window._restore_browser_audio = lambda: (
         gui.TranslatorWindow._restore_browser_audio(window)
     )
@@ -115,6 +156,12 @@ def test_failed_restore_keeps_state_for_retry(monkeypatch) -> None:
         _browser_audio_routed="chrome",
         _audio_router=Mock(restore=restore),
     )
+    window.browser_audio_controller = BrowserAudioController(
+        window._audio_router,
+        selected_browser=lambda: "chrome",
+        on_status=window.status_var.set,
+    )
+    window.browser_audio_controller.routed_browser = "chrome"
 
     gui.TranslatorWindow._restore_browser_audio(window)
     assert window._browser_audio_routed == "chrome"
@@ -211,15 +258,25 @@ def test_gui_does_not_autostart_overlay_without_vb_cable() -> None:
 
 
 def test_overlay_setup_failure_restores_browser_audio() -> None:
+    from uvt.session import TranslationSession
+
     window = SimpleNamespace(
         live=None,
+        session=TranslationSession(),
+        _live_run_id=0,
+        _select_source_mode=Mock(),
         _settings=Mock(return_value=Mock()),
         _route_browser_audio=Mock(return_value=True),
         _restore_browser_audio=Mock(),
         overlay=Mock(show=Mock(side_effect=RuntimeError("setup failed"))),
         overlay_button=Mock(),
         live_button=Mock(),
+        profile_var=Mock(get=Mock(return_value="Rapido")),
+        auto_ducking_var=Mock(get=Mock(return_value=False)),
+        live_voice_var=Mock(get=Mock(return_value=False)),
+        browser_audio_controller=Mock(),
     )
+    window.live_controller = LiveTranslationController(window.session)
 
     with pytest.raises(RuntimeError, match="setup failed"):
         gui.TranslatorWindow._toggle_live(

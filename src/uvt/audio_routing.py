@@ -6,6 +6,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -74,6 +75,93 @@ def route_browser_to_cable(browser: str) -> None:
 
 def restore_browser_default(browser: str) -> None:
     _set_browser_output(browser, "DefaultRenderDevice")
+
+
+def _sound_volume_value(process_name: str, command: str) -> str:
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        result = subprocess.run(
+            [str(sound_volume_view_path()), command, process_name],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=4,
+            creationflags=flags,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AudioRoutingError(f"Lettura volume fallita: {exc}") from exc
+    if result.returncode:
+        raise AudioRoutingError("Impossibile leggere il volume del browser.")
+    return result.stdout.strip()
+
+
+def _set_browser_volume(browser: str, percent: float) -> None:
+    process_name = _BROWSER_PROCESSES.get(browser.lower())
+    if process_name is None:
+        raise AudioRoutingError(f"Browser non supportato: {browser}")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        result = subprocess.run(
+            [
+                str(sound_volume_view_path()),
+                "/SetVolume",
+                process_name,
+                f"{max(0.0, min(100.0, percent)):.1f}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=4,
+            creationflags=flags,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AudioRoutingError(f"Regolazione volume fallita: {exc}") from exc
+    if result.returncode:
+        raise AudioRoutingError("Regolazione volume browser fallita.")
+
+
+class BrowserVolumeDucker:
+    """Temporarily lowers browser volume and restores the exact prior value."""
+
+    def __init__(self, browser: str, duck_percent: int = 30) -> None:
+        self.browser = _validated_browser(browser)
+        self.duck_percent = max(0, min(100, int(duck_percent)))
+        self._original_percent: float | None = None
+        self._lock = threading.Lock()
+
+    def duck(self) -> bool:
+        with self._lock:
+            if self._original_percent is not None:
+                return True
+            process_name = _BROWSER_PROCESSES[self.browser]
+            try:
+                original = float(
+                    _sound_volume_value(process_name, "/GetPercent")
+                )
+                muted = _sound_volume_value(process_name, "/GetMute") == "1"
+                if muted:
+                    return False
+                self._original_percent = original
+                _set_browser_volume(
+                    self.browser,
+                    original * self.duck_percent / 100.0,
+                )
+                return True
+            except (AudioRoutingError, ValueError):
+                self._original_percent = None
+                return False
+
+    def restore(self) -> bool:
+        with self._lock:
+            original = self._original_percent
+            self._original_percent = None
+        if original is None:
+            return True
+        try:
+            _set_browser_volume(self.browser, original)
+            return True
+        except AudioRoutingError:
+            return False
 
 
 class AudioRoutingLeaseManager:

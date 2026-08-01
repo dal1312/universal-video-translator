@@ -9,6 +9,7 @@ from uvt.browser_protocol import (
     browser_request_is_fresh,
     claim_browser_request,
     make_overlay_uri,
+    make_control_uri,
     make_translate_uri,
     parse_browser_request,
     parse_translate_request,
@@ -40,6 +41,29 @@ def test_overlay_request_preserves_browser_and_timestamp_without_url() -> None:
     assert request.browser == "chrome"
     assert request.requested_at == 1234
     assert request.request_id == REQUEST_ID
+
+
+def test_overlay_profile_and_control_commands_roundtrip() -> None:
+    overlay = parse_browser_request(
+        make_overlay_uri(
+            browser="edge",
+            requested_at=1234,
+            request_id=REQUEST_ID,
+            profile="rapido",
+        )
+    )
+    stop = parse_browser_request(
+        make_control_uri(
+            "stop",
+            browser="edge",
+            requested_at=1234,
+            request_id=REQUEST_ID,
+        )
+    )
+
+    assert overlay.profile == "rapido"
+    assert stop.action == "stop"
+    assert stop.browser == "edge"
 
 
 def test_only_recent_explicit_browser_requests_can_autostart() -> None:
@@ -227,13 +251,14 @@ def test_extension_keeps_source_tab_and_uses_minimum_permission() -> None:
     assert "chrome.tabs.update" not in worker
     assert "tab.url" not in worker
     assert "chrome.tabs.create" in worker
-    assert "uvt://overlay" in worker
+    assert "uvt://${command}" in worker
     assert "uvt://translate" not in worker
     assert "requested_at" in worker
     assert "request_id" in worker
-    assert "active: true" in worker
+    assert "active: false" in worker
     assert "setTimeout" not in worker
     assert "chrome.alarms" not in worker
     assert "chrome.tabs.remove" not in worker
     assert "MIN_LAUNCH_INTERVAL_MS" in worker
-    assert manifest["permissions"] == []
+    assert manifest["permissions"] == ["storage"]
+    assert manifest["action"]["default_popup"] == "popup.html"

@@ -70,8 +70,26 @@ def test_live_defaults_to_text_only(tmp_path) -> None:
     )
 
     assert not live.speak
-    assert live.chunk_seconds == 4.0
+    assert live.chunk_seconds == 1.8
+    assert live._audio_queue.maxsize == 1
+    assert live._speech_queue.maxsize == 1
     assert live.capture_device is None
+
+
+def test_live_chunk_duration_is_bounded(tmp_path) -> None:
+    fast = LiveTranslator(
+        translator=object(),  # type: ignore[arg-type]
+        cache=TranslationCache(tmp_path / "fast-cache.json"),
+        chunk_seconds=0.25,
+    )
+    slow = LiveTranslator(
+        translator=object(),  # type: ignore[arg-type]
+        cache=TranslationCache(tmp_path / "slow-cache.json"),
+        chunk_seconds=20,
+    )
+
+    assert fast.chunk_seconds == 1.5
+    assert slow.chunk_seconds == 8.0
 
 
 def test_capture_device_lookup_leaves_soundcard_to_initialize_com(monkeypatch) -> None:
@@ -181,6 +199,7 @@ def test_live_falls_back_to_original_on_translate_error(monkeypatch) -> None:
 
     import numpy as np
 
+    live._audio_queue = queue.Queue(maxsize=2)
     live._audio_queue.put(np.array([0.1, -0.1], dtype=np.float32))
     live._audio_queue.put(_END)
     live._run()
@@ -242,6 +261,7 @@ def test_live_uses_translation_when_cache_write_fails(monkeypatch) -> None:
 
     import numpy as np
 
+    live._audio_queue = queue.Queue(maxsize=2)
     live._audio_queue.put(np.array([0.1, -0.1], dtype=np.float32))
     live._audio_queue.put(_END)
     live._run()

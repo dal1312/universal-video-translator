@@ -181,6 +181,7 @@ class OllamaTranslator:
         *,
         num_predict: int,
         response_format: dict | None = None,
+        extra_options: dict | None = None,
     ) -> str:
         self._ensure_ready()
         payload = {
@@ -189,7 +190,11 @@ class OllamaTranslator:
             "think": False,
             "keep_alive": "30m",
             "messages": messages,
-            "options": {"temperature": 0.1, "num_predict": num_predict},
+            "options": {
+                "temperature": 0.1,
+                "num_predict": num_predict,
+                **(extra_options or {}),
+            },
         }
         if response_format is not None:
             payload["format"] = response_format
@@ -233,6 +238,32 @@ class OllamaTranslator:
             ],
             num_predict=256,
         )
+
+    def translate_realtime(
+        self, text: str, source_language: str = "auto"
+    ) -> str:
+        """Low-prefill translation path for short live speech segments."""
+        word_count = max(1, len(text.split()))
+        translated = self._chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "/no_think\nTraduci in italiano parlato. "
+                        "Rispondi solo con la traduzione, breve e naturale."
+                    ),
+                },
+                {"role": "user", "content": f"/no_think\n{text}"},
+            ],
+            num_predict=max(24, min(96, word_count * 3 + 12)),
+            extra_options={"temperature": 0.0, "num_ctx": 1024},
+        )
+        # Live audio must not block for a second model request: short phrases
+        # also produce false negatives in language detection. The compact
+        # prompt is deterministic, so accept its first non-empty result.
+        cleaned = _clean_translation(translated)
+        self._last_failed_indices = ()
+        return cleaned
 
     def _translate_strict(
         self,

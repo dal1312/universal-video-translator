@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from uvt.subtitles import Cue
 from uvt.workflow import RunSettings, TranslationWorkflow
 
@@ -64,3 +66,15 @@ def test_workflow_reports_remote_download_progress(monkeypatch, tmp_path: Path) 
     assert statuses[0] == "Download video: avvio…"
     assert "trascrizione locale" in statuses[-1]
     workflow.close()
+
+
+def test_workflow_rejects_empty_source() -> None:
+    workflow = TranslationWorkflow(
+        preview=object(),  # type: ignore[arg-type]
+        on_text=lambda _text: None,
+        on_status=lambda _status: None,
+        on_error=lambda _error: None,
+    )
+
+    with pytest.raises(ValueError, match="Seleziona un video"):
+        workflow.resolve_input(settings("   "))

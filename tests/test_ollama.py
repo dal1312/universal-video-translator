@@ -46,6 +46,37 @@ def test_translate_many_keeps_order() -> None:
     assert translator._session.post.call_count == 1
 
 
+def test_realtime_translation_uses_small_context_and_token_budget() -> None:
+    translator = OllamaTranslator()
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "message": {"content": "Questa prova funziona."}
+    }
+    translator._session.post = Mock(return_value=response)
+
+    assert translator.translate_realtime(
+        "This test works.", "inglese"
+    ) == "Questa prova funziona."
+    payload = translator._session.post.call_args.kwargs["json"]
+    assert payload["options"]["num_ctx"] == 1024
+    assert payload["options"]["num_predict"] <= 96
+    assert payload["options"]["temperature"] == 0.0
+
+
+def test_realtime_translation_never_retries_short_result() -> None:
+    translator = OllamaTranslator()
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"message": {"content": '"Va bene."'}}
+    translator._session.post = Mock(return_value=response)
+
+    assert translator.translate_realtime("All right.") == "Va bene."
+    assert translator._session.post.call_count == 1
+
+
 def test_translate_many_fallback_keeps_original_on_errors() -> None:
     class _Translator(OllamaTranslator):
         calls = 0

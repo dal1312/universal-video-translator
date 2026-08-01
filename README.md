@@ -52,6 +52,8 @@ Usa questa modalita' per tradurre in tempo reale cio' che senti nel browser.
 4. Premi l'estensione nel browser oppure avvia manualmente **AI Overlay OS**.
 5. Il browser viene instradato su `CABLE Input`; le casse/cuffie restano come uscita predefinita Windows.
 
+Scegli il profilo **Rapido**, **Bilanciato** o **Qualita** in base al compromesso desiderato. Lo streaming usa segmentazione vocale basata su pause (VAD), produce trascrizioni/traduzioni incrementali e riduce automaticamente il volume originale durante la voce italiana. Il pannello mostra inoltre latenza corrente, mediana e dettaglio di acquisizione, Whisper, traduzione e code.
+
 Se VB-Cable non viene rilevato, l'avvio automatico da estensione viene bloccato per evitare di catturare l'audio di sistema sbagliato.
 
 ## Pipeline
@@ -72,7 +74,7 @@ Voce Kokoro o Windows
 Player sincronizzato o esportazione
 ```
 
-Per AI Overlay OS la pipeline lavora su finestre audio in tempo reale invece che su un file completo.
+Per AI Overlay OS la pipeline lavora in modo incrementale: VAD rileva parlato e pause, Whisper elabora subito ciascun segmento e le code a capacita' limitata scartano i dati vecchi quando il sistema resta indietro.
 
 ## Requisiti Windows
 
@@ -137,6 +139,8 @@ Comportamento previsto in v0.2.1:
 - il click non compila **Video e file**;
 - il click non avvia yt-dlp e non scarica il video;
 - il click seleziona **AI Overlay OS**, attende VB-Cable e avvia la traduzione live;
+- il popup permette di scegliere il profilo e inviare i comandi avvia, porta in primo piano e stop;
+- **Avvia** mantiene selezionato il video e lascia UVT in background; solo **Apri UVT** porta avanti la finestra desktop;
 - se UVT e' gia' aperto, la richiesta viene inoltrata alla finestra esistente.
 
 Se dopo un aggiornamento il click inserisce ancora un link in **Video e file**, rimuovi la vecchia estensione, ricarica quella inclusa nella build corrente e premi di nuovo **Collega browser**.
@@ -145,9 +149,9 @@ Se dopo un aggiornamento il click inserisce ancora un link in **Video e file**, 
 
 UVT e' progettato per uso locale.
 
-- L'estensione non richiede permessi browser.
+- L'estensione usa solo `storage` per ricordare profilo e ultimo comando richiesto.
 - L'estensione non ha content script, host permissions, cookie access, history access o analytics.
-- Il protocollo `uvt://` trasporta solo browser, timestamp e ID casuale monouso.
+- Il protocollo `uvt://` trasporta comando, browser, profilo opzionale, timestamp e ID casuale monouso.
 - Le richieste duplicate, vecchie o gia' usate vengono ignorate.
 - I marker anti-replay non contengono URL e vengono puliti al successivo utilizzo.
 - I log non registrano URL, trascrizioni, traduzioni, cookie o nomi dei dispositivi.
