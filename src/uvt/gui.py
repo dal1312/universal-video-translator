@@ -35,6 +35,12 @@ from .controllers import (
     LiveTranslationController,
 )
 from .diagnostics import log_exception, logger
+from .documents import (
+    SUPPORTED_DOCUMENT_EXTENSIONS,
+    DocumentTranslationError,
+    DocumentTranslator,
+    default_document_destination,
+)
 from .hotkeys import GlobalHotkeys, change_system_volume
 from .glossary import TranslationGlossary
 from .live import (
@@ -97,6 +103,8 @@ class TranslatorWindow(tk.Tk):
         self.session = TranslationSession()
         self._file_run_id = 0
         self._live_run_id = 0
+        self._document_run_id = 0
+        self._document_cancel = threading.Event()
         self._workers: set[threading.Thread] = set()
         self._workers_lock = threading.Lock()
         self._capture_devices_loaded = False
@@ -124,6 +132,8 @@ class TranslatorWindow(tk.Tk):
         )
 
         self.file_var = tk.StringVar()
+        self.document_var = tk.StringVar()
+        self.document_output_var = tk.StringVar()
         self.source_mode_var = tk.StringVar(value="file")
         self.model_var = tk.StringVar(value=saved.ollama_model)
         self.language_var = tk.StringVar(value=saved.language)
@@ -500,6 +510,13 @@ class TranslatorWindow(tk.Tk):
             style="Mode.TButton",
         )
         self.live_mode_button.pack(side="left", padx=(4, 0))
+        self.document_mode_button = ttk.Button(
+            source_selector,
+            text="Documenti",
+            command=lambda: self._select_source_mode("document"),
+            style="Mode.TButton",
+        )
+        self.document_mode_button.pack(side="left", padx=(4, 0))
 
         mode_stage = ttk.Frame(workspace)
         mode_stage.grid(row=2, column=0, sticky="ew")
@@ -511,9 +528,14 @@ class TranslatorWindow(tk.Tk):
         self.overlay_tab = ttk.Frame(
             mode_stage, padding=22, style="Surface.TFrame"
         )
+        self.document_tab = ttk.Frame(
+            mode_stage, padding=22, style="Surface.TFrame"
+        )
         video_tab.grid(row=0, column=0, sticky="ew")
         self.overlay_tab.grid(row=0, column=0, sticky="ew")
+        self.document_tab.grid(row=0, column=0, sticky="ew")
         self.overlay_tab.grid_remove()
+        self.document_tab.grid_remove()
 
         video_tab.columnconfigure(0, weight=1)
         ttk.Label(
@@ -595,6 +617,59 @@ class TranslatorWindow(tk.Tk):
             style="Secondary.TButton",
         )
         self.video_button.pack(side="left")
+
+        self.document_tab.columnconfigure(0, weight=1)
+        ttk.Label(
+            self.document_tab,
+            text="Traduzione locale di documenti",
+            style="CardPanelTitle.TLabel",
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(
+            self.document_tab,
+            text="TXT, Markdown, HTML, EPUB, DOCX e PDF con testo incorporato.",
+            style="CardSubtitle.TLabel",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 18))
+        ttk.Label(
+            self.document_tab, text="DOCUMENTO SORGENTE", style="CardSection.TLabel"
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(0, 7))
+        ttk.Entry(
+            self.document_tab, textvariable=self.document_var
+        ).grid(row=3, column=0, sticky="ew", padx=(0, 10), ipady=4)
+        ttk.Button(
+            self.document_tab,
+            text="Sfoglia…",
+            command=self._browse_document,
+            style="Subtle.TButton",
+        ).grid(row=3, column=1, ipady=3)
+        ttk.Label(
+            self.document_tab, text="DESTINAZIONE", style="CardSection.TLabel"
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(16, 7))
+        ttk.Entry(
+            self.document_tab, textvariable=self.document_output_var
+        ).grid(row=5, column=0, sticky="ew", padx=(0, 10), ipady=4)
+        ttk.Button(
+            self.document_tab,
+            text="Salva come…",
+            command=self._browse_document_output,
+            style="Subtle.TButton",
+        ).grid(row=5, column=1, ipady=3)
+        document_actions = ttk.Frame(self.document_tab, style="Card.TFrame")
+        document_actions.grid(row=6, column=0, columnspan=2, sticky="w", pady=(18, 0))
+        self.document_start_button = ttk.Button(
+            document_actions,
+            text="Traduci documento",
+            command=self._start_document_translation,
+            style="Primary.TButton",
+        )
+        self.document_start_button.pack(side="left", padx=(0, 8))
+        self.document_stop_button = ttk.Button(
+            document_actions,
+            text="Stop",
+            command=self._stop_document_translation,
+            state="disabled",
+            style="Danger.TButton",
+        )
+        self.document_stop_button.pack(side="left")
 
         self.overlay_tab.columnconfigure(0, weight=1)
         ttk.Label(
@@ -908,28 +983,65 @@ class TranslatorWindow(tk.Tk):
         if path:
             self.file_var.set(path)
 
+    def _browse_document(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona documento",
+            filetypes=(
+                ("Documenti supportati", "*.txt *.md *.html *.htm *.epub *.docx *.pdf"),
+                ("Tutti i file", "*.*"),
+            ),
+        )
+        if path:
+            self.document_var.set(path)
+            self.document_output_var.set(str(default_document_destination(path)))
+
+    def _browse_document_output(self) -> None:
+        source = Path(self.document_var.get())
+        path = filedialog.asksaveasfilename(
+            title="Salva documento tradotto",
+            initialfile=f"{source.stem or 'documento'}.italiano{source.suffix}",
+            defaultextension=source.suffix,
+        )
+        if path:
+            self.document_output_var.set(path)
+
     def _select_source_mode(self, mode: str) -> None:
-        if mode not in {"file", "live"}:
+        if mode not in {"file", "live", "document"}:
             return
         if self.session.busy:
-            active = "file o URL" if self.session.mode is SessionMode.FILE else "audio live"
+            active = self.session.mode.value if self.session.mode else "sconosciuta"
             self.status_var.set(
                 f"Interrompi prima la sessione {active} attiva."
             )
             return
         self.source_mode_var.set(mode)
-        if mode == "live":
-            self.video_tab.grid_remove()
-            self.overlay_tab.grid()
-        else:
-            self.overlay_tab.grid_remove()
-            self.video_tab.grid()
+        self.video_tab.grid_remove()
+        self.overlay_tab.grid_remove()
+        document_tab = getattr(self, "document_tab", None)
+        if document_tab is not None:
+            document_tab.grid_remove()
+        selected = {
+            "file": self.video_tab,
+            "live": self.overlay_tab,
+            "document": document_tab,
+        }[mode]
+        if selected is not None:
+            selected.grid()
         self.file_mode_button.configure(
             style="ModeSelected.TButton" if mode == "file" else "Mode.TButton"
         )
         self.live_mode_button.configure(
             style="ModeSelected.TButton" if mode == "live" else "Mode.TButton"
         )
+        document_button = getattr(self, "document_mode_button", None)
+        if document_button is not None:
+            document_button.configure(
+                style=(
+                    "ModeSelected.TButton"
+                    if mode == "document"
+                    else "Mode.TButton"
+                )
+            )
 
     def _show_browser_overlay(self, focus_window: bool = True) -> None:
         self._select_source_mode("live")
@@ -1127,6 +1239,91 @@ class TranslatorWindow(tk.Tk):
 
     def _text_action(self, action: str) -> None:
         self.file_entry.event_generate(action)
+
+    def _start_document_translation(self) -> None:
+        source = Path(self.document_var.get().strip())
+        destination = Path(self.document_output_var.get().strip())
+        if not source.is_file() or source.suffix.casefold() not in SUPPORTED_DOCUMENT_EXTENSIONS:
+            messagebox.showerror("Documenti", "Seleziona un documento supportato.")
+            return
+        if destination.suffix.casefold() != source.suffix.casefold():
+            messagebox.showerror(
+                "Documenti", "La destinazione deve mantenere lo stesso formato."
+            )
+            return
+        if self.session.busy:
+            messagebox.showerror("Documenti", "Interrompi prima la sessione attiva.")
+            return
+        self._select_source_mode("document")
+        run_id = self.session.begin(SessionMode.DOCUMENT)
+        self._document_run_id = run_id
+        self._document_cancel.clear()
+        self.document_start_button.configure(state="disabled")
+        self.document_stop_button.configure(state="normal")
+        self.status_var.set("Preparazione documento…")
+        self._start_worker(
+            self._translate_document,
+            source,
+            destination,
+            self.language_var.get(),
+            self.model_var.get(),
+            run_id,
+            name="uvt-document-translation",
+        )
+
+    def _translate_document(
+        self,
+        source: Path,
+        destination: Path,
+        language: str,
+        model: str,
+        run_id: int,
+    ) -> None:
+        try:
+            translator = DocumentTranslator(OllamaTranslator(model=model))
+            result = translator.translate(
+                source,
+                destination,
+                source_language=language,
+                cancel=self._document_cancel,
+                on_progress=lambda done, total: self._call_in_ui(
+                    self.status_var.set,
+                    f"Documento: {done}/{total} blocchi tradotti",
+                ),
+            )
+        except Exception as error:
+            if run_id == self._document_run_id:
+                self._call_in_ui(self._finish_document_translation, error)
+            return
+        if run_id == self._document_run_id:
+            self._call_in_ui(self._finish_document_translation, None, result)
+
+    def _finish_document_translation(
+        self, error: Exception | None, result: Path | None = None
+    ) -> None:
+        self.session.finish(SessionMode.DOCUMENT)
+        self._document_run_id = self.session.run_id
+        self.document_start_button.configure(state="normal")
+        self.document_stop_button.configure(state="disabled")
+        self._sync_mode_controls()
+        if error is not None:
+            if isinstance(error, DocumentTranslationError) and self._document_cancel.is_set():
+                self.status_var.set("Traduzione documento interrotta")
+            else:
+                messagebox.showerror("Documenti", str(error))
+                self.status_var.set("Errore traduzione documento")
+            return
+        self.status_var.set(f"Documento tradotto: {result}")
+
+    def _stop_document_translation(self) -> None:
+        if self.session.mode is not SessionMode.DOCUMENT or not self.session.busy:
+            return
+        self.session.begin_stopping(SessionMode.DOCUMENT)
+        document_cancel = getattr(self, "_document_cancel", None)
+        if document_cancel is not None:
+            document_cancel.set()
+        self.document_stop_button.configure(state="disabled")
+        self.status_var.set("Arresto traduzione documento…")
 
     def _start(self) -> None:
         settings = self._settings()
@@ -1661,6 +1858,9 @@ class TranslatorWindow(tk.Tk):
         self._schedule_settings_save()
 
     def _toggle_live(self, *, require_browser_routing: bool = False) -> None:
+        if TranslatorWindow._session_active(self, SessionMode.DOCUMENT):
+            self.status_var.set("Interrompi prima la traduzione del documento.")
+            return
         if self.live and self.live.running:
             self._stop_live_mode()
             return
@@ -1918,11 +2118,16 @@ class TranslatorWindow(tk.Tk):
     def _sync_mode_controls(self) -> None:
         file_active = self.session.mode is SessionMode.FILE and self.session.busy
         live_active = self.session.mode is SessionMode.LIVE and self.session.busy
+        document_active = (
+            self.session.mode is SessionMode.DOCUMENT and self.session.busy
+        )
         self.start_button.configure(
-            state="disabled" if file_active or live_active else "normal"
+            state="disabled" if self.session.busy else "normal"
         )
         live_enabled = live_active or (
-            getattr(self, "_capture_devices_loaded", False) and not file_active
+            getattr(self, "_capture_devices_loaded", False)
+            and not file_active
+            and not document_active
         )
         self.live_button.configure(
             state="normal" if live_enabled else "disabled"
@@ -1930,6 +2135,19 @@ class TranslatorWindow(tk.Tk):
         selector_state = "disabled" if self.session.busy else "normal"
         self.file_mode_button.configure(state=selector_state)
         self.live_mode_button.configure(state=selector_state)
+        document_mode_button = getattr(self, "document_mode_button", None)
+        if document_mode_button is not None:
+            document_mode_button.configure(state=selector_state)
+        document_start_button = getattr(self, "document_start_button", None)
+        if document_start_button is not None:
+            document_start_button.configure(
+                state="disabled" if self.session.busy else "normal"
+            )
+        document_stop_button = getattr(self, "document_stop_button", None)
+        if document_stop_button is not None:
+            document_stop_button.configure(
+                state="normal" if document_active else "disabled"
+            )
 
     @staticmethod
     def _session_active(window, mode: SessionMode) -> bool:
@@ -1965,11 +2183,16 @@ class TranslatorWindow(tk.Tk):
             self._stop()
         if TranslatorWindow._session_active(self, SessionMode.LIVE):
             self._stop_live_mode()
+        if TranslatorWindow._session_active(self, SessionMode.DOCUMENT):
+            self._stop_document_translation()
 
     def _close(self) -> None:
         if self._closing:
             return
         self._closing = True
+        document_cancel = getattr(self, "_document_cancel", None)
+        if document_cancel is not None:
+            document_cancel.set()
         tray = getattr(self, "_tray", None)
         if tray is not None:
             tray.close()

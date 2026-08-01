@@ -146,6 +146,7 @@ Comportamento previsto in v0.2.1:
 - l'estensione si ricarica automaticamente quando rileva una nuova versione dell'app;
 - tasti globali: `Ctrl+Alt+F8` avvia/ferma, `Ctrl+Alt+F9` ferma, `Ctrl+Alt+F10` mostra/nasconde l'overlay, `Ctrl+Alt+Su/Giù` regola il volume;
 - glossario JSON locale per nomi, marchi e termini tecnici; si apre da **Impostazioni avanzate** e viene ricaricato senza riavvio;
+- modalità **Documenti** per TXT, Markdown, HTML, EPUB, DOCX e PDF testuali, con avanzamento, annullamento ed esportazione nello stesso formato;
 - **Avvia** mantiene selezionato il video e lascia UVT in background; solo **Apri UVT** porta avanti la finestra desktop;
 - se UVT e' gia' aperto, la richiesta viene inoltrata alla finestra esistente.
 

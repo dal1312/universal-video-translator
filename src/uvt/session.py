@@ -7,6 +7,7 @@ from enum import Enum
 class SessionMode(str, Enum):
     FILE = "file"
     LIVE = "live"
+    DOCUMENT = "document"
 
 
 class SessionPhase(str, Enum):
@@ -77,4 +78,3 @@ class TranslationSession:
     def fail(self, mode: SessionMode, run_id: int) -> None:
         if self.mode is mode and self.run_id == run_id:
             self.phase = SessionPhase.ERROR
-

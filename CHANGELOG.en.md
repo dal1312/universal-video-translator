@@ -12,6 +12,7 @@
 - SHA-256-verified automatic updates and browser-extension version synchronization.
 - Global shortcuts for session control, overlay visibility, and system volume.
 - Local mandatory-term glossary with automatic reload and revision-aware translation cache.
+- New local Documents mode for TXT, Markdown, HTML, EPUB, DOCX, and text-based PDF files.
 - Full exit restores audio routing, threads, and local resources.
 
 ## 0.2.1 - 2026-07-31
