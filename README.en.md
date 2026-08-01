@@ -181,9 +181,15 @@ To reset preferences, close UVT and rename `settings.json`. To clear translation
 
 Verification is non-mutating and checks syntax, tests, versions, Python dependencies, FFmpeg/ffprobe/ffplay, Deno, SoundVolumeView, eSpeak NG, Kokoro, Faster-Whisper, SoundCard, Ollama, the default model, and VB-Cable.
 
+The essential check can be repeated inside the app with **Settings → Verify configuration**. To validate real GUI construction, the contextual panel, and shutdown:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\windows\smoke_gui.py
+```
+
 The latest local validation recorded in `WINDOWS_VALIDATION.md` includes:
 
-- `117 passed` in the latest recorded Windows validation.
+- The complete pytest suite passed in the latest local validation.
 - Successful PyInstaller build.
 - Successful single-instance packaged smoke test.
 - ZIP and payload checksum verification.

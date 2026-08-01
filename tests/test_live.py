@@ -269,3 +269,21 @@ def test_live_uses_translation_when_cache_write_fails(monkeypatch) -> None:
     assert captured == ["Ciao"]
     assert any("Cache traduzione non aggiornata" in item for item in statuses)
     assert not errors
+
+
+def test_live_warms_translator_before_first_translation() -> None:
+    calls: list[str] = []
+
+    class _Translator:
+        def warmup(self) -> None:
+            calls.append("warmup")
+
+    live = LiveTranslator(
+        translator=_Translator(),  # type: ignore[arg-type]
+        cache=object(),  # type: ignore[arg-type]
+    )
+
+    live._warmup_translator()
+
+    assert calls == ["warmup"]
+    assert live._warmup_complete.is_set()

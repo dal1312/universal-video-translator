@@ -193,6 +193,21 @@ class OllamaTranslator:
         self._ensure_ready()
         return sorted(self._installed_models(), key=str.casefold)
 
+    def warmup(self) -> None:
+        """Load the selected model before the first real translation."""
+        self._ensure_ready()
+        response = self._session.post(
+            f"{self._base_url()}/api/generate",
+            json={
+                "model": self.model,
+                "prompt": "",
+                "stream": False,
+                "keep_alive": "30m",
+            },
+            timeout=min(self.timeout, 60.0),
+        )
+        response.raise_for_status()
+
     def _chat(
         self,
         messages: list[dict[str, str]],

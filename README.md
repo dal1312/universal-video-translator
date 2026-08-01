@@ -192,9 +192,15 @@ Per azzerare le preferenze chiudi UVT e rinomina `settings.json`. Per svuotare s
 
 La verifica e' non mutante e controlla sintassi, test, versioni, dipendenze Python, FFmpeg/ffprobe/ffplay, Deno, SoundVolumeView, eSpeak NG, Kokoro, Faster-Whisper, SoundCard, Ollama, modello predefinito e VB-Cable.
 
+Dall'app puoi rilanciare il controllo essenziale con **Impostazioni → Verifica configurazione**. Per verificare costruzione della GUI reale, pannello contestuale e shutdown:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\windows\smoke_gui.py
+```
+
 Ultima validazione locale registrata in `WINDOWS_VALIDATION.md`:
 
-- `117 passed` nell'ultima validazione Windows registrata.
+- Suite pytest completa superata nell'ultima validazione locale.
 - Build PyInstaller completata.
 - Smoke test single-instance completato.
 - ZIP e payload verificati con checksum.

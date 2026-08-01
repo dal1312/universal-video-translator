@@ -1,8 +1,8 @@
 # Windows Validation
 
-Date: 2026-07-31
+Date: 2026-08-02
 Version: **0.2.1**
-Status: **PASS - SOURCE, PREFLIGHT, PACKAGE, CHECKSUM, AND SINGLE INSTANCE**
+Status: **PASS - SOURCE, FULL PREFLIGHT, GUI SMOKE, PACKAGE, CHECKSUM, AND SINGLE INSTANCE**
 
 ## Environment
 
@@ -19,7 +19,7 @@ Status: **PASS - SOURCE, PREFLIGHT, PACKAGE, CHECKSUM, AND SINGLE INSTANCE**
 ## Automated Verification
 
 ```text
-117 passed in 1.69s
+180 passed in 6.96s
 ```
 
 Additional checks:
@@ -29,6 +29,9 @@ Additional checks:
 - PowerShell 5.1 parser validation: PASS
 - `git diff --check`: PASS, excluding expected line-ending notices
 - source/full/build preflight: PASS
+- source GUI smoke (`scripts/windows/smoke_gui.py`): PASS
+- contextual settings open/close and deterministic GUI shutdown: PASS
+- parallel Ollama, Whisper, and speech warm-up tests: PASS
 - project, Python package, and extension version agreement: PASS
 - deterministic package metadata tests: PASS
 

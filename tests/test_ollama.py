@@ -25,6 +25,25 @@ def test_missing_model_has_precise_error() -> None:
         translator._ensure_ready()
 
 
+def test_warmup_loads_model_without_translation_prompt() -> None:
+    translator = OllamaTranslator(model="test:latest")
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    translator._session.post = Mock(return_value=response)
+
+    translator.warmup()
+
+    call = translator._session.post.call_args
+    assert call.args[0].endswith("/api/generate")
+    assert call.kwargs["json"] == {
+        "model": "test:latest",
+        "prompt": "",
+        "stream": False,
+        "keep_alive": "30m",
+    }
+
+
 def test_translate_many_keeps_order() -> None:
     translator = OllamaTranslator()
     translator._ready = True

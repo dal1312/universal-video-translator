@@ -4,6 +4,8 @@
 
 ## Non rilasciato
 
+- Layout Tk estratto in un modulo dedicato, preflight rilanciabile e warm-up parallelo di Ollama, Whisper e sintesi vocale per ridurre la prima risposta Live.
+- Smoke test Windows end-to-end per costruzione GUI, pannello contestuale e shutdown completo.
 - Errori operativi centralizzati in messaggi azionabili che indicano problema e correzione senza esporre dettagli interni.
 - Visual system estratto dalla finestra principale e selezione automatica di un modello Ollama installato quando quello salvato non è disponibile.
 - Pannello impostazioni contestuale, chiuso all'avvio, con rilevamento automatico dei componenti e fallback alla voce Windows quando Kokoro non è disponibile.

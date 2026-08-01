@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Tk layout extracted into a dedicated module, repeatable preflight, and parallel Ollama, Whisper, and speech warm-up to reduce the first Live response.
+- End-to-end Windows smoke test covering GUI construction, contextual settings, and complete shutdown.
 - Operational failures centralized into actionable messages that explain the problem and correction without exposing internal details.
 - Visual system extracted from the main window and automatic selection of an installed Ollama model when the saved choice is unavailable.
 - Contextual settings panel, collapsed at startup, with automatic component detection and Windows voice fallback when Kokoro is unavailable.

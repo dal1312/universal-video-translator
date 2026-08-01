@@ -15,6 +15,7 @@ from .cache import TranslationCache
 from .adaptive_sync import AdaptiveSyncController
 from .latency import LatencyTracker
 from .profiles import PerformanceProfile, profile_by_key
+from .runtime import RuntimeSupervisor
 from .tts import create_speech_engine
 from .vad import SpeechSegmenter
 
@@ -184,7 +185,10 @@ class LiveTranslator:
         self._thread: threading.Thread | None = None
         self._capture_thread: threading.Thread | None = None
         self._speech_thread: threading.Thread | None = None
+        self._warmup_thread: threading.Thread | None = None
+        self._warmup_complete = threading.Event()
         self._engine = None
+        self._runtime = RuntimeSupervisor()
 
     @property
     def running(self) -> bool:
@@ -198,11 +202,14 @@ class LiveTranslator:
         self._speech_queue = queue.Queue(maxsize=self.profile.speech_queue_size)
         self._spoken_history.clear()
         self._adaptive_sync = AdaptiveSyncController(self.rate)
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+        self._warmup_complete.clear()
+        if self._runtime.closing:
+            self._runtime = RuntimeSupervisor()
+        self._thread = self._runtime.start(self._run, name="uvt-live-main")
 
     def stop(self, timeout: float | None = None) -> bool:
         self._stop.set()
+        self._runtime.begin_shutdown()
         put_latest(self._audio_queue, _END)
         put_latest(self._speech_queue, _END)
         if self._engine is not None:
@@ -216,7 +223,12 @@ class LiveTranslator:
         elif self._thread is not None:
             deadline = time.monotonic() + self.chunk_seconds + 1.0
         current = threading.current_thread()
-        threads = (self._capture_thread, self._speech_thread, self._thread)
+        threads = (
+            self._capture_thread,
+            self._speech_thread,
+            self._warmup_thread,
+            self._thread,
+        )
         for thread in threads:
             if thread is None or thread is current:
                 continue
@@ -229,8 +241,19 @@ class LiveTranslator:
         if stopped:
             self._capture_thread = None
             self._speech_thread = None
+            self._warmup_thread = None
             self._thread = None
         return stopped
+
+    def _warmup_translator(self) -> None:
+        try:
+            warmup = getattr(self.translator, "warmup", None)
+            if warmup is not None:
+                warmup()
+        except Exception as exc:
+            self.on_status(f"Warm-up traduzione non disponibile: {exc}")
+        finally:
+            self._warmup_complete.set()
 
     def _capture(self, sample_rate: int) -> None:
         com_initialized = False
@@ -390,17 +413,21 @@ class LiveTranslator:
             import numpy as np
             from faster_whisper import WhisperModel
 
+            self._warmup_thread = self._runtime.start(
+                self._warmup_translator,
+                name="uvt-live-translation-warmup",
+            )
+            if self.speak:
+                self.on_status("Overlay OS: caricamento voce…")
+                self._speech_thread = self._runtime.start(
+                    self._speak,
+                    name="uvt-live-speech",
+                )
             self.on_status("Overlay OS: caricamento Whisper…")
             model_name = self.whisper_model or self.profile.whisper_model
             whisper = WhisperModel(
                 model_name, device="auto", compute_type="int8"
             )
-            if self.speak:
-                self.on_status("Overlay OS: caricamento voce…")
-                self._speech_thread = threading.Thread(
-                    target=self._speak, daemon=True
-                )
-                self._speech_thread.start()
 
             sample_rate = 16000
             language_codes = {
@@ -410,12 +437,11 @@ class LiveTranslator:
                 "tedesco": "de",
             }
             language = language_codes.get(self.source_language)
-            self._capture_thread = threading.Thread(
-                target=self._capture,
-                args=(sample_rate,),
-                daemon=True,
+            self._capture_thread = self._runtime.start(
+                self._capture,
+                sample_rate,
+                name="uvt-live-capture",
             )
-            self._capture_thread.start()
             dropped_segments = 0
 
             while not self._stop.is_set():
@@ -474,6 +500,9 @@ class LiveTranslator:
                     continue
                 translated = None
                 translate_started = time.monotonic()
+                if not self._warmup_complete.is_set():
+                    self.on_status("Overlay OS: preparazione traduzione…")
+                    self._warmup_complete.wait(timeout=60.0)
                 try:
                     translated = self.cache.get(
                         getattr(self.translator, "cache_key", self.translator.model),
