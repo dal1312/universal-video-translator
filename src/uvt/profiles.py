@@ -18,6 +18,7 @@ class PerformanceProfile:
     speech_queue_size: int
     ducking_percent: int
     speech_rate_multiplier: float
+    max_queue_delay_seconds: float = 6.0
 
 
 PROFILES = {
@@ -35,6 +36,7 @@ PROFILES = {
         speech_queue_size=1,
         ducking_percent=24,
         speech_rate_multiplier=1.12,
+        max_queue_delay_seconds=2.5,
     ),
     "bilanciato": PerformanceProfile(
         key="bilanciato",
@@ -50,6 +52,7 @@ PROFILES = {
         speech_queue_size=1,
         ducking_percent=30,
         speech_rate_multiplier=1.06,
+        max_queue_delay_seconds=4.0,
     ),
     "qualita": PerformanceProfile(
         key="qualita",
@@ -65,6 +68,7 @@ PROFILES = {
         speech_queue_size=1,
         ducking_percent=36,
         speech_rate_multiplier=1.0,
+        max_queue_delay_seconds=6.0,
     ),
 }
 

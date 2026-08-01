@@ -42,7 +42,9 @@ async function refreshStatus() {
     const current = state.latency?.current_ms;
     const median = state.latency?.median_ms;
     latency.textContent = current ? `Latenza: ${(current / 1000).toFixed(1)} s` : "Latenza: in attesa";
-    details.textContent = median ? `Mediana ${(median / 1000).toFixed(1)} s · Profilo ${state.profile}` : `Profilo ${state.profile}`;
+    const dropped = state.latency?.dropped_segments || 0;
+    const dropInfo = dropped ? ` · Recuperati ${dropped}` : "";
+    details.textContent = median ? `Mediana ${(median / 1000).toFixed(1)} s · Profilo ${state.profile}${dropInfo}` : `Profilo ${state.profile}${dropInfo}`;
     if (state.profile) profile.value = state.profile;
   } catch (_error) {
     connection.textContent = "UVT non connesso";

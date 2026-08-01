@@ -17,6 +17,9 @@ def test_performance_profiles_map_labels_and_change_pipeline() -> None:
         "qualita"
     ).beam_size
     assert profile_by_key("rapido").max_segment_seconds == 1.8
+    assert profile_by_key("rapido").max_queue_delay_seconds < profile_by_key(
+        "qualita"
+    ).max_queue_delay_seconds
     assert profile_by_key("qualita").audio_queue_size == 1
 
 

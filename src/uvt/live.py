@@ -379,6 +379,7 @@ class LiveTranslator:
                 daemon=True,
             )
             self._capture_thread.start()
+            dropped_segments = 0
 
             while not self._stop.is_set():
                 audio = self._audio_queue.get()
@@ -388,6 +389,18 @@ class LiveTranslator:
                     samples = audio.samples
                     capture_ms = audio.duration_seconds * 1000
                     queue_ms = (time.monotonic() - audio.ready_at) * 1000
+                    if queue_ms > self.profile.max_queue_delay_seconds * 1000:
+                        dropped_segments += 1
+                        self.on_metrics(
+                            {
+                                "queue_ms": round(queue_ms, 1),
+                                "dropped_segments": dropped_segments,
+                            }
+                        )
+                        self.on_status(
+                            "Overlay OS: recupero ritardo, segmento vecchio scartato"
+                        )
+                        continue
                 else:
                     samples = audio
                     capture_ms = 0.0
