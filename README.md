@@ -97,7 +97,10 @@ Apri PowerShell nella cartella del progetto ed esegui:
 .\AVVIA_WINDOWS.bat
 ```
 
-L'installazione usa sempre il Python della `.venv`, applica vincoli di versione verificati e termina al primo errore. Non modifica il Python globale.
+L'installazione cerca Python x64 3.10 prima tramite `py -3.10` e poi tramite
+`python`, crea sempre la `.venv`, applica vincoli verificati e termina al primo
+errore. Non modifica il Python globale. Se il runtime manca, mostra direttamente
+il comando `winget install Python.Python.3.10`.
 
 Per scaricare anche il modello predefinito:
 

@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- Robust Windows setup when multiple Python versions are installed, plus Ollama-aware source launcher and reliable exit-code propagation.
 - Repeatable local benchmark for Whisper accuracy, multilingual fidelity, Ollama latency, and Kokoro speed; full Ollama warm-up removes the first Live translation delay.
 - Audio/video export moved out of the window into a dedicated controller, with progressive-player workers registered in the runtime supervisor for deterministic shutdown.
 - Document translation lifecycle extracted from the GUI into a dedicated controller with centralized cancellation and session state.

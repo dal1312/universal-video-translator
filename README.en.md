@@ -95,7 +95,10 @@ Open PowerShell in the project directory and run:
 .\AVVIA_WINDOWS.bat
 ```
 
-The installer always uses the virtual-environment Python, applies validated constraints, and fails immediately on errors. It does not modify the global Python installation.
+The installer looks for Python x64 3.10 through `py -3.10` first and then
+`python`, always creates the `.venv`, applies validated constraints, and fails
+immediately on errors. It does not modify the global Python installation. If
+the runtime is missing, it prints `winget install Python.Python.3.10` directly.
 
 To pull the default model as part of setup:
 

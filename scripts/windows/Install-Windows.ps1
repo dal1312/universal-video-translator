@@ -16,15 +16,45 @@ function Invoke-CheckedPython {
     }
 }
 
+function Find-Python310 {
+    $Candidates = @()
+    $Launcher = Get-Command py.exe -ErrorAction SilentlyContinue
+    if ($Launcher) {
+        $Candidates += [pscustomobject]@{
+            Executable = $Launcher.Source
+            Prefix = @('-3.10')
+        }
+    }
+    $Python = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($Python) {
+        $Candidates += [pscustomobject]@{
+            Executable = $Python.Source
+            Prefix = @()
+        }
+    }
+    foreach ($Candidate in $Candidates) {
+        $ProbeArguments = @($Candidate.Prefix) + @(
+            '-c',
+            "import platform,sys; assert sys.version_info[:2] == (3,10); assert platform.architecture()[0] == '64bit'"
+        )
+        & $Candidate.Executable @ProbeArguments 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            return $Candidate
+        }
+    }
+    throw 'Python x64 3.10 non trovato. Installalo con: winget install Python.Python.3.10'
+}
+
 try {
     Set-Location $Root
     if (-not (Test-Path -LiteralPath $VenvPython)) {
-        $SystemPython = (Get-Command python -ErrorAction Stop).Source
-        & $SystemPython -c "import platform,sys; assert sys.version_info[:2] == (3,10); assert platform.architecture()[0] == '64bit'"
-        if ($LASTEXITCODE -ne 0) {
-            throw 'Questa serie di vincoli richiede Python x64 3.10.'
-        }
-        & $SystemPython -m venv (Join-Path $Root '.venv')
+        $SystemPython = Find-Python310
+        $VenvArguments = @($SystemPython.Prefix) + @(
+            '-m',
+            'venv',
+            (Join-Path $Root '.venv')
+        )
+        & $SystemPython.Executable @VenvArguments
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $VenvPython)) {
             throw 'Creazione ambiente virtuale non riuscita.'
         }
