@@ -33,6 +33,14 @@ class AppPaths:
         return self.root / "browser-requests"
 
     @property
+    def browser_bridge_token(self) -> Path:
+        return self.root / "state" / "browser-bridge.token"
+
+    @property
+    def native_messaging(self) -> Path:
+        return self.root / "native-messaging"
+
+    @property
     def instance_state(self) -> Path:
         return self.root / "instance"
 

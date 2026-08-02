@@ -50,6 +50,7 @@ universal-video-translator = "uvt.bootstrap:main"
 
 [project.scripts]
 uvt-cli = "uvt.app:main"
+uvt-native-host = "uvt.native_messaging:run_native_host"
 
 [tool.setuptools.packages.find]
 where = ["src"]

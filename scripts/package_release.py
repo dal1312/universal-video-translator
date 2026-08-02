@@ -81,6 +81,7 @@ def provenance(repo: Path, target: Path, version: str, epoch: int) -> dict:
     bundled = {}
     for relative in (
         "UniversalVideoTranslator.exe",
+        "UVTNativeHost.exe",
         "ffmpeg.exe",
         "ffprobe.exe",
         "ffplay.exe",
@@ -171,6 +172,8 @@ def main() -> int:
     repo = args.repo.resolve()
     if not (source / "UniversalVideoTranslator.exe").is_file():
         raise FileNotFoundError("UniversalVideoTranslator.exe not found in source")
+    if not (source / "UVTNativeHost.exe").is_file():
+        raise FileNotFoundError("UVTNativeHost.exe not found in source")
     output.mkdir(parents=True, exist_ok=True)
     artifact_name = f"UniversalVideoTranslator-{args.version}-windows-x86_64"
     target = output / artifact_name

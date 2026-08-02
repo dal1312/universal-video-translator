@@ -25,6 +25,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         bool(getattr(sys, "frozen", False)),
     )
     arguments = list(sys.argv[1:] if argv is None else argv)
+    from .native_messaging import EXTENSION_ID
+
+    native_origin = f"chrome-extension://{EXTENSION_ID}/"
+    if arguments == ["--native-messaging-host"] or arguments[:1] == [native_origin]:
+        from .native_messaging import run_native_host
+
+        return run_native_host()
     if arguments == ["--install-argos-models"]:
         try:
             from .optional_engines import install_argos_packages

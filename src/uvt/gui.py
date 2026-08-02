@@ -16,7 +16,6 @@ from .audio_routing import (
     AudioRoutingError,
 )
 from .browser_protocol import (
-    BrowserRequest,
     BrowserProtocolError,
     FOCUS_ACTION,
     OVERLAY_ACTION,
@@ -28,6 +27,8 @@ from .browser_protocol import (
     register_protocol,
 )
 from .browser_bridge import LocalBrowserBridge
+from .native_messaging import register_native_host
+from .desktop_integration import bridge_snapshot, browser_request, dispatch_hotkey
 from .cache import TranslationCache
 from .controllers import (
     BrowserAudioController,
@@ -549,31 +550,27 @@ class TranslatorWindow(tk.Tk):
         if self._closing or bridge is None:
             return
         bridge.update_state(
-            {
-                "mode": self.session.mode.value if self.session.mode else None,
-                "phase": self.session.phase.value,
-                "running": self.session.busy,
-                "profile": profile_key_from_label(self.profile_var.get()),
-                "browser": self._routing_browser(),
-                "capture_device": self.capture_device_var.get(),
-                "voice": bool(self.live_voice_var.get()),
-                "auto_ducking": bool(self.auto_ducking_var.get()),
-                "latency": dict(self._latest_latency),
-                "app_version": __version__,
-                "update_status": self._update_status,
-            }
+            bridge_snapshot(
+                mode=self.session.mode.value if self.session.mode else None,
+                phase=self.session.phase.value,
+                running=self.session.busy,
+                profile=profile_key_from_label(self.profile_var.get()),
+                browser=self._routing_browser(),
+                capture_device=self.capture_device_var.get(),
+                voice=bool(self.live_voice_var.get()),
+                auto_ducking=bool(self.auto_ducking_var.get()),
+                latency=self._latest_latency,
+                app_version=__version__,
+                update_status=self._update_status,
+            )
         )
         for command in bridge.drain_commands():
             if command.action == "quit":
                 self._close()
                 return
-            self._handle_browser_request(
-                BrowserRequest(
-                    browser=command.browser,
-                    action=command.action,
-                    profile=command.profile,
-                )
-            )
+            request = browser_request(command)
+            if request is not None:
+                self._handle_browser_request(request)
         self._schedule_browser_bridge_poll()
 
     def _schedule_hotkey_poll(self) -> None:
@@ -586,17 +583,15 @@ class TranslatorWindow(tk.Tk):
         if self._closing:
             return
         hotkeys = getattr(self, "_hotkeys", None)
+        actions = {
+            "toggle": self._toggle_live,
+            "stop": self._stop_from_tray,
+            "overlay": self._toggle_overlay,
+            "volume_up": lambda: change_system_volume(1),
+            "volume_down": lambda: change_system_volume(-1),
+        }
         for command in hotkeys.drain() if hotkeys is not None else ():
-            if command == "toggle":
-                self._toggle_live()
-            elif command == "stop":
-                self._stop_from_tray()
-            elif command == "overlay":
-                self._toggle_overlay()
-            elif command == "volume_up":
-                change_system_volume(1)
-            elif command == "volume_down":
-                change_system_volume(-1)
+            dispatch_hotkey(command, actions)
         self._schedule_hotkey_poll()
 
     def _check_updates(self) -> None:
@@ -679,6 +674,7 @@ class TranslatorWindow(tk.Tk):
     def _connect_browser(self) -> None:
         try:
             register_protocol()
+            register_native_host()
             extension = extension_directory()
             if not extension.is_dir():
                 raise BrowserProtocolError(
@@ -690,7 +686,7 @@ class TranslatorWindow(tk.Tk):
             return
         messagebox.showinfo(
             "Collegamento browser",
-            "Protocollo UVT registrato per questo utente.\n\n"
+            "Protocollo UVT e canale Native Messaging registrati per questo utente.\n\n"
             "In Chrome o Edge apri la pagina delle estensioni, attiva la "
             "modalità sviluppatore, scegli 'Carica estensione non pacchettizzata' "
             "e seleziona la cartella appena aperta.\n\n"

@@ -259,6 +259,7 @@ def test_extension_keeps_source_tab_and_uses_minimum_permission() -> None:
     assert "chrome.alarms" not in worker
     assert "chrome.tabs.remove" not in worker
     assert "MIN_LAUNCH_INTERVAL_MS" in worker
-    assert manifest["permissions"] == ["storage"]
-    assert manifest["host_permissions"] == ["http://127.0.0.1:17321/*"]
+    assert manifest["permissions"] == ["storage", "nativeMessaging"]
+    assert "host_permissions" not in manifest
+    assert "sendNativeMessage" in worker
     assert manifest["action"]["default_popup"] == "popup.html"

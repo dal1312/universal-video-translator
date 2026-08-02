@@ -464,14 +464,23 @@ Aggiornamento locale successivo alla revisione:
   sintattico di entrambi gli script dell'estensione.
 - Bridge: eliminata l'autorizzazione basata sul solo header statico
   `X-UVT-Client`; le richieste HTTP devono provenire da un'origine extension.
-  La tokenizzazione completa resta un intervento separato perché richiede un
-  canale sicuro di provisioning del segreto (preferibilmente Native Messaging).
+  Il successivo hardening ha eliminato anche l'accesso HTTP diretto
+  dell'estensione: Chrome/Edge usano ora Native Messaging con ID stabile,
+  allowlist dell'origine e token casuale install-specific tra host e bridge.
+- Pipeline Live: trascrizione e traduzione operano su worker separati; Whisper
+  può elaborare il segmento successivo mentre il precedente viene tradotto.
+  Lo shutdown drena deterministicamente l'ultimo segmento prima del sentinel.
+- GUI: composizione dello stato browser, conversione dei comandi e dispatch
+  degli hotkey sono stati estratti in `desktop_integration.py` e sono testabili
+  senza inizializzare Tk.
+- Packaging: la release include `UVTNativeHost.exe` console, sottoposto alla
+  stessa firma Authenticode e alla provenance dell'eseguibile principale.
 
 Verifiche eseguite dopo le modifiche:
 
 - Ruff: PASS sull'intero albero `src`, `tests`, `scripts`.
 - JavaScript: PASS per `service-worker.js` e `popup.js`.
-- Suite completa: 200 PASS con Python 3.10.6, inclusa la regressione
+- Suite completa: 205 PASS con Python 3.10.6, incluse la regressione
   COM/SoundCard.
 - Dipendenze (`pip check`), compilazione Python, Ruff, sintassi JavaScript e
   `git diff --check`: PASS.

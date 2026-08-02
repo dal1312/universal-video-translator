@@ -42,6 +42,14 @@ class _SpeechItem:
     source_duration_seconds: float = 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class _TranscriptionItem:
+    text: str
+    capture_ms: float
+    queue_ms: float
+    transcribe_ms: float
+
+
 class LiveCaptureError(RuntimeError):
     pass
 
@@ -193,10 +201,14 @@ class LiveTranslator:
         self._speech_queue: queue.Queue = queue.Queue(
             maxsize=self.profile.speech_queue_size
         )
+        self._translation_queue: queue.Queue = queue.Queue(
+            maxsize=self.profile.audio_queue_size
+        )
         self._spoken_history: deque[str] = deque(maxlen=5)
         self._thread: threading.Thread | None = None
         self._capture_thread: threading.Thread | None = None
         self._speech_thread: threading.Thread | None = None
+        self._translation_thread: threading.Thread | None = None
         self._warmup_thread: threading.Thread | None = None
         self._warmup_complete = threading.Event()
         self._engine = None
@@ -212,6 +224,7 @@ class LiveTranslator:
         self._stop.clear()
         self._audio_queue = queue.Queue(maxsize=self.profile.audio_queue_size)
         self._speech_queue = queue.Queue(maxsize=self.profile.speech_queue_size)
+        self._translation_queue = queue.Queue(maxsize=self.profile.audio_queue_size)
         self._spoken_history.clear()
         self._adaptive_sync = AdaptiveSyncController(self.rate)
         self._warmup_complete.clear()
@@ -224,6 +237,7 @@ class LiveTranslator:
         self._runtime.begin_shutdown()
         put_latest(self._audio_queue, _END)
         put_latest(self._speech_queue, _END)
+        put_latest(self._translation_queue, _END)
         if self._engine is not None:
             try:
                 self._engine.stop()
@@ -238,6 +252,7 @@ class LiveTranslator:
         threads = (
             self._capture_thread,
             self._speech_thread,
+            self._translation_thread,
             self._warmup_thread,
             self._thread,
         )
@@ -253,6 +268,7 @@ class LiveTranslator:
         if stopped:
             self._capture_thread = None
             self._speech_thread = None
+            self._translation_thread = None
             self._warmup_thread = None
             self._thread = None
         return stopped
@@ -352,6 +368,85 @@ class LiveTranslator:
         finally:
             if com_initialized:
                 uninitialize_windows_com()
+
+    def _translate_stream(self) -> None:
+        try:
+            while True:
+                item = self._translation_queue.get()
+                if item is _END:
+                    return
+                if not isinstance(item, _TranscriptionItem):
+                    continue
+                original = item.text
+                translated = None
+                translate_started = time.monotonic()
+                if not self._warmup_complete.is_set():
+                    self.on_status("Overlay OS: preparazione traduzione…")
+                    self._warmup_complete.wait(timeout=60.0)
+                try:
+                    translated = self.cache.get(
+                        getattr(self.translator, "cache_key", self.translator.model),
+                        self.source_language,
+                        original,
+                    )
+                except Exception as exc:
+                    self.on_status(f"Cache traduzione non disponibile: {exc}")
+                if translated is None:
+                    try:
+                        if (
+                            self.profile.key == "rapido"
+                            and hasattr(self.translator, "translate_realtime")
+                        ):
+                            translated = self.translator.translate_realtime(
+                                original, self.source_language
+                            )
+                        elif hasattr(self.translator, "translate_many"):
+                            translated = self.translator.translate_many(
+                                [original], self.source_language
+                            )[0]
+                        else:
+                            translated = self.translator.translate(
+                                original, self.source_language
+                            )
+                    except Exception as exc:
+                        self.on_status(f"Fallback originale: {exc}")
+                        translated = original
+                    else:
+                        failures = getattr(self.translator, "last_failed_indices", None)
+                        failed = bool(failures) if failures is not None else translated == original
+                        if failed:
+                            self.on_status("Segmento non tradotto; uso testo originale")
+                        try:
+                            self.cache.put(
+                                getattr(self.translator, "cache_key", self.translator.model),
+                                self.source_language,
+                                original,
+                                translated,
+                            )
+                        except Exception as exc:
+                            self.on_status(f"Cache traduzione non aggiornata: {exc}")
+                translate_ms = (time.monotonic() - translate_started) * 1000
+                self.on_text(translated)
+                total_ms = item.capture_ms + item.queue_ms + item.transcribe_ms + translate_ms
+                self.on_metrics(
+                    self.latency.record(
+                        capture_ms=item.capture_ms,
+                        transcribe_ms=item.transcribe_ms,
+                        translate_ms=translate_ms,
+                        queue_ms=item.queue_ms,
+                        total_ms=total_ms,
+                    )
+                )
+                if self.speak:
+                    put_latest(
+                        self._speech_queue,
+                        _SpeechItem(translated, time.monotonic(), item.capture_ms / 1000),
+                    )
+        except Exception as exc:
+            if not self._stop.is_set():
+                self.on_error(exc)
+                self._stop.set()
+                put_latest(self._audio_queue, _END)
 
     def _speak(self) -> None:
         com_initialized = False
@@ -475,6 +570,10 @@ class LiveTranslator:
                 sample_rate,
                 name="uvt-live-capture",
             )
+            self._translation_thread = self._runtime.start(
+                self._translate_stream,
+                name="uvt-live-translation",
+            )
             dropped_segments = 0
 
             while not self._stop.is_set():
@@ -529,89 +628,13 @@ class LiveTranslator:
                     )
                 ):
                     continue
-                translated = None
-                translate_started = time.monotonic()
-                if not self._warmup_complete.is_set():
-                    self.on_status("Overlay OS: preparazione traduzione…")
-                    self._warmup_complete.wait(timeout=60.0)
-                try:
-                    translated = self.cache.get(
-                        getattr(self.translator, "cache_key", self.translator.model),
-                        self.source_language,
-                        original,
-                    )
-                except Exception as exc:
-                    self.on_status(f"Cache traduzione non disponibile: {exc}")
-                if translated is None:
-                    try:
-                        if (
-                            self.profile.key == "rapido"
-                            and hasattr(self.translator, "translate_realtime")
-                        ):
-                            translated = self.translator.translate_realtime(
-                                original, self.source_language
-                            )
-                        elif hasattr(self.translator, "translate_many"):
-                            translated = self.translator.translate_many(
-                                [original], self.source_language
-                            )[0]
-                        else:
-                            translated = self.translator.translate(
-                                original, self.source_language
-                            )
-                    except Exception as exc:
-                        self.on_status(f"Fallback originale: {exc}")
-                        translated = original
-                    else:
-                        reported_failures = getattr(
-                            self.translator,
-                            "last_failed_indices",
-                            None,
-                        )
-                        failed = (
-                            bool(reported_failures)
-                            if reported_failures is not None
-                            else translated == original
-                        )
-                        if failed:
-                            self.on_status(
-                                "Segmento non tradotto; uso testo originale"
-                            )
-                        try:
-                            self.cache.put(
-                                getattr(
-                                    self.translator,
-                                    "cache_key",
-                                    self.translator.model,
-                                ),
-                                self.source_language,
-                                original,
-                                translated,
-                            )
-                        except Exception as exc:
-                            self.on_status(
-                                f"Cache traduzione non aggiornata: {exc}"
-                            )
-                translate_ms = (time.monotonic() - translate_started) * 1000
-                self.on_text(translated)
-                total_ms = capture_ms + queue_ms + transcribe_ms + translate_ms
-                metrics = self.latency.record(
-                    capture_ms=capture_ms,
-                    transcribe_ms=transcribe_ms,
-                    translate_ms=translate_ms,
-                    queue_ms=queue_ms,
-                    total_ms=total_ms,
+                put_latest(
+                    self._translation_queue,
+                    _TranscriptionItem(original, capture_ms, queue_ms, transcribe_ms),
                 )
-                self.on_metrics(metrics)
-                if self.speak:
-                    put_latest(
-                        self._speech_queue,
-                        _SpeechItem(
-                            translated,
-                            time.monotonic(),
-                            capture_ms / 1000,
-                        ),
-                    )
+            self._translation_queue.put(_END)
+            if self._translation_thread is not None:
+                self._translation_thread.join(timeout=60.0)
             self.on_status("Overlay OS interrotto")
         except Exception as exc:
             if not self._stop.is_set():
@@ -619,4 +642,5 @@ class LiveTranslator:
             self.on_status("Errore Overlay OS")
         finally:
             self._stop.set()
+            put_latest(self._translation_queue, _END)
             put_latest(self._speech_queue, _END)

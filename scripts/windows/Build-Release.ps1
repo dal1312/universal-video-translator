@@ -76,6 +76,7 @@ try {
 
     $AppDirectory = Join-Path $Dist 'UniversalVideoTranslator'
     Require-File (Join-Path $AppDirectory 'UniversalVideoTranslator.exe')
+    Require-File (Join-Path $AppDirectory 'UVTNativeHost.exe')
     if ($FFmpegDirectory) {
         $MediaDirectory = (Resolve-Path -LiteralPath $FFmpegDirectory).Path
     }
@@ -97,6 +98,7 @@ try {
         'ffmpeg.exe',
         'ffprobe.exe',
         'ffplay.exe',
+        'UVTNativeHost.exe',
         '_internal\browser_extension\manifest.json',
         '_internal\third_party\SoundVolumeView\SoundVolumeView.exe',
         '_internal\third_party\SoundVolumeView\readme.txt',
@@ -111,11 +113,13 @@ try {
     if ($Sign) {
         if (-not $CertificateThumbprint) { throw 'Specificare -CertificateThumbprint quando si usa -Sign.' }
         $SignTool = (Get-Command signtool.exe -ErrorAction Stop).Source
-        $Application = Join-Path $AppDirectory 'UniversalVideoTranslator.exe'
-        & $SignTool sign /sha1 $CertificateThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Application
-        if ($LASTEXITCODE -ne 0) { throw 'Firma Authenticode non riuscita.' }
-        & $SignTool verify /pa $Application
-        if ($LASTEXITCODE -ne 0) { throw 'Verifica firma Authenticode non riuscita.' }
+        foreach ($ApplicationName in @('UniversalVideoTranslator.exe', 'UVTNativeHost.exe')) {
+            $Application = Join-Path $AppDirectory $ApplicationName
+            & $SignTool sign /sha1 $CertificateThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Application
+            if ($LASTEXITCODE -ne 0) { throw "Firma Authenticode non riuscita: $ApplicationName" }
+            & $SignTool verify /pa $Application
+            if ($LASTEXITCODE -ne 0) { throw "Verifica firma Authenticode non riuscita: $ApplicationName" }
+        }
     }
 
     Invoke-CheckedPython @(

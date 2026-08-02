@@ -84,13 +84,19 @@ class AutomaticUpdater:
         _safe_extract(archive, stage)
         payload = stage / f"UniversalVideoTranslator-{version}-windows-x86_64"
         executable = payload / "UniversalVideoTranslator.exe"
+        native_host = payload / "UVTNativeHost.exe"
         if not executable.is_file():
             raise ValueError("Eseguibile mancante nel pacchetto di aggiornamento")
+        if not native_host.is_file():
+            raise ValueError("Host Native Messaging mancante nell'aggiornamento")
         if os.name == "nt" and not _signatures_match(
             executable, Path(sys.executable)
         ):
             shutil.rmtree(stage, ignore_errors=True)
             raise ValueError("Firma digitale dell'aggiornamento non valida")
+        if os.name == "nt" and not _signatures_match(native_host, executable):
+            shutil.rmtree(stage, ignore_errors=True)
+            raise ValueError("Firma digitale dell'host browser non valida")
         pending = {
             "version": version,
             "payload": str(payload.resolve()),
@@ -131,11 +137,16 @@ def launch_pending_update() -> bool:
         payload = Path(pending["payload"]).resolve()
         target = Path(pending["target"]).resolve()
         candidate = payload / "UniversalVideoTranslator.exe"
+        native_host = payload / "UVTNativeHost.exe"
         if not candidate.is_file():
+            return False
+        if not native_host.is_file():
             return False
         if target != Path(sys.executable).resolve().parent:
             return False
         if not _signatures_match(candidate, Path(sys.executable)):
+            return False
+        if not _signatures_match(native_host, candidate):
             return False
         script = app_paths().updates / "apply-update.ps1"
         quoted_payload = str(payload).replace("'", "''")

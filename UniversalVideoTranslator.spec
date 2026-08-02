@@ -75,8 +75,27 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+native_exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='UVTNativeHost',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=True,
+    version='assets/windows_version_info.txt',
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
 coll = COLLECT(
     exe,
+    native_exe,
     a.binaries,
     a.datas,
     strip=False,

@@ -3,8 +3,8 @@
   "name": "Start UVT AI Overlay",
   "version": "0.2.1",
   "description": "Start the local Universal Video Translator AI Overlay without reading the active page URL.",
-  "permissions": ["storage"],
-  "host_permissions": ["http://127.0.0.1:17321/*"],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr/+5fe/q/epRTR+ytVg6C9zQWeycqL7urRWx24DxZN1T7l62JVFhD5ImClwNocU7PpXmhmSPgFxPpJhNtCUqe42F6DE8aoOC/l38YsxILAP82boGoOxyYj3SZWtCBUQnJiiWeVwaZaqPedc+Yc3w2cO4BGVzu5IGEnq9MtOjkI8YS34wu1x6Os7zKa+gL3toFqfuYczKP/PXGOJq1zy8CUsAru7ipNBCoqIVEyC9ijt/3UJ3tyAjxa4VGFK4eT8J+r9xfgybE1JkdV6/aT6usbsB+qU6qK6a0A0IbaHAiXcDPkCXkvp1Js7T+oypWfNain/e0cWt4g0f9RIRwruyIQIDAQAB",
+  "permissions": ["storage", "nativeMessaging"],
   "background": {
     "service_worker": "service-worker.js"
   },

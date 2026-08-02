@@ -1,5 +1,5 @@
 const MIN_LAUNCH_INTERVAL_MS = 1500;
-const BRIDGE_COMMAND_URL = "http://127.0.0.1:17321/v1/command";
+const NATIVE_HOST = "it.uvt.browser";
 let lastLaunchAt = 0;
 
 function browserName() {
@@ -18,6 +18,12 @@ async function setState(state) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "uvt-status") {
+    chrome.runtime.sendNativeMessage(NATIVE_HOST, { type: "status" })
+      .then(sendResponse)
+      .catch((error) => sendResponse({ ok: false, available: false, error: String(error) }));
+    return true;
+  }
   if (message?.type !== "uvt-command") return false;
   const now = Date.now();
   if (now - lastLaunchAt < MIN_LAUNCH_INTERVAL_MS) {
@@ -39,14 +45,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function sendCommand(command, profile, now) {
   try {
-    const response = await fetch(BRIDGE_COMMAND_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ command, profile, browser: browserName() }),
+    const response = await chrome.runtime.sendNativeMessage(NATIVE_HOST, {
+      type: "command",
+      payload: { command, profile, browser: browserName() },
     });
-    if (!response.ok) throw new Error(`UVT bridge: HTTP ${response.status}`);
+    if (!response?.ok) throw new Error(response?.error || "UVT non disponibile");
     await setState({ status: "connected", command, profile: profile || null });
     return { ok: true, via: "bridge" };
   } catch (_bridgeError) {

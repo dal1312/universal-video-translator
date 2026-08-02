@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import queue
+import secrets
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+
+from .paths import app_paths
 
 
 BRIDGE_HOST = "127.0.0.1"
@@ -29,7 +32,13 @@ class LocalBrowserBridge:
     or enqueue commands. Tk state is copied into a locked snapshot by the UI.
     """
 
-    def __init__(self, host: str = BRIDGE_HOST, port: int = BRIDGE_PORT) -> None:
+    def __init__(
+        self,
+        host: str = BRIDGE_HOST,
+        port: int = BRIDGE_PORT,
+        *,
+        token: str | None = None,
+    ) -> None:
         self.host = host
         self.port = port
         self._state: dict[str, Any] = {
@@ -44,6 +53,7 @@ class LocalBrowserBridge:
         self._commands: queue.Queue[BridgeCommand] = queue.Queue(maxsize=16)
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._token = token or self._load_or_create_token()
 
     def start(self) -> bool:
         if self._thread and self._thread.is_alive():
@@ -109,8 +119,10 @@ class LocalBrowserBridge:
                     self.send_header("Vary", "Origin")
 
             def _authorized(self) -> bool:
-                origin = self.headers.get("Origin")
-                return bridge._origin_allowed(origin)
+                authorization = self.headers.get("Authorization", "")
+                return secrets.compare_digest(
+                    authorization, f"Bearer {bridge._token}"
+                )
 
             def log_message(self, _format: str, *_args) -> None:
                 return
@@ -160,11 +172,22 @@ class LocalBrowserBridge:
         self._commands.put_nowait(command)
 
     @staticmethod
-    def _origin_allowed(origin: str | None) -> bool:
-        return bool(
-            origin
-            and origin.startswith(("chrome-extension://", "moz-extension://"))
-        )
+    def _load_or_create_token() -> str:
+        path = app_paths().browser_bridge_token
+        try:
+            token = path.read_text(encoding="ascii").strip()
+            if len(token) >= 43:
+                return token
+        except OSError:
+            pass
+        token = secrets.token_urlsafe(32)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(token, encoding="ascii")
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+        return token
 
     @staticmethod
     def _parse_command(payload: object) -> BridgeCommand:

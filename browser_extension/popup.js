@@ -5,7 +5,6 @@ const connectionDot = document.querySelector("#connection-dot");
 const session = document.querySelector("#session");
 const latency = document.querySelector("#latency");
 const details = document.querySelector("#details");
-const BRIDGE_STATUS_URL = "http://127.0.0.1:17321/v1/status";
 
 async function restoreState() {
   const { uvtState } = await chrome.storage.local.get("uvtState");
@@ -30,11 +29,8 @@ async function command(name) {
 
 async function refreshStatus() {
   try {
-    const response = await fetch(BRIDGE_STATUS_URL, {
-      cache: "no-store",
-    });
-    if (!response.ok) throw new Error("offline");
-    const state = await response.json();
+    const state = await chrome.runtime.sendMessage({ type: "uvt-status" });
+    if (!state?.ok) throw new Error("offline");
     await maybeReloadExtension(state.app_version);
     connection.textContent = "UVT connesso";
     connectionDot.classList.add("online");
