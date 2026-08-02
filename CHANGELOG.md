@@ -4,6 +4,8 @@
 
 ## Non rilasciato
 
+- Traduzione offline gratuita con Argos Translate come motore selezionabile e fallback automatico quando Ollama non risponde.
+- Voci italiane Piper Paola e Riccardo tramite runtime GPL esterno e installer opzionale con accettazione esplicita delle licenze.
 - Installazione Windows robusta quando più versioni Python sono presenti e launcher sorgente con rilevamento Ollama ed exit code affidabile.
 - Benchmark locale ripetibile per accuratezza Whisper, fedelta' multilingue, latenza Ollama e velocita' Kokoro; warm-up Ollama completo per eliminare il ritardo della prima traduzione Live.
 - Export audio/video separato dalla finestra in un controller dedicato e worker del player progressivo registrati nel supervisore runtime per uno shutdown deterministico.

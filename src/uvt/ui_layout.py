@@ -184,7 +184,7 @@ def build_window(window: Any) -> None:
     window.model_combo = ttk.Combobox(
         window.advanced_frame,
         textvariable=window.model_var,
-        values=("translategemma:latest", "qwen3:4b"),
+        values=("translategemma:latest", "translategemma:12b", "argos:offline"),
         state="readonly",
     )
     window.model_combo.grid(row=1, column=0, sticky="ew", pady=(5, 12))
@@ -203,7 +203,7 @@ def build_window(window: Any) -> None:
     window.speech_combo = ttk.Combobox(
         window.advanced_frame,
         textvariable=window.speech_engine_var,
-        values=("kokoro", "windows"),
+        values=("kokoro", "piper", "windows"),
         state="readonly",
     )
     window.speech_combo.grid(row=5, column=0, sticky="ew", pady=(5, 12))
@@ -573,4 +573,3 @@ def build_window(window: Any) -> None:
         command=lambda: window._text_action("<<SelectAll>>"),
     )
     window._apply_text_colors()
-

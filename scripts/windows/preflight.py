@@ -172,6 +172,7 @@ def run(profile: str, *, skip_model: bool, skip_cable: bool) -> None:
                 "yt_dlp",
                 "espeakng_loader",
                 "language_tags",
+                "argostranslate",
             )
         )
         _check_python_resources()

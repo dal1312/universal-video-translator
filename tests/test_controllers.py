@@ -22,7 +22,9 @@ def test_document_controller_owns_translation_lifecycle(
         "uvt.controllers.DocumentTranslator",
         Mock(return_value=document_translator),
     )
-    monkeypatch.setattr("uvt.controllers.OllamaTranslator", Mock())
+    translator = Mock()
+    create_translator = Mock(return_value=translator)
+    monkeypatch.setattr("uvt.controllers.create_translator", create_translator)
 
     run_id = controller.begin()
     result = controller.translate(
@@ -36,7 +38,15 @@ def test_document_controller_owns_translation_lifecycle(
     assert result == translated
     assert session.mode is SessionMode.DOCUMENT
     assert session.phase is SessionPhase.PREPARING
-    assert document_translator.translate.call_args.kwargs["cancel"] is controller.cancel
+    create_translator.assert_called_once_with("test:latest")
+    assert (
+        document_translator.translate.call_args.args[0]
+        == tmp_path / "source.txt"
+    )
+    assert (
+        document_translator.translate.call_args.kwargs["cancel"]
+        is controller.cancel
+    )
 
 
 def test_document_controller_cancels_and_finishes_session() -> None:

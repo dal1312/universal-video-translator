@@ -12,6 +12,8 @@ def test_app_paths_share_absolute_local_root(tmp_path) -> None:
     assert paths.translation_cache.parent == tmp_path / "cache"
     assert paths.routing_lease.parent == tmp_path / "state"
     assert paths.browser_requests.parent == tmp_path
+    assert paths.piper_runtime == tmp_path / "engines" / "piper" / ".venv"
+    assert paths.piper_voices == tmp_path / "voices" / "piper"
 
 
 def test_settings_roundtrip_and_validation(tmp_path) -> None:
@@ -22,6 +24,8 @@ def test_settings_roundtrip_and_validation(tmp_path) -> None:
         rate=210,
         routing_browser="chrome",
         dark_mode=False,
+        speech_engine="piper",
+        voice="Paola (Piper, donna)",
         overlay_alpha=0.75,
     )
 

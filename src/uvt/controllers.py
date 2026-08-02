@@ -11,8 +11,8 @@ from .audio_routing import (
     BrowserVolumeDucker,
 )
 from .documents import DocumentTranslator
-from .ollama import OllamaTranslator
 from .session import SessionMode, TranslationSession
+from .translation import create_translator
 from .workflow import PreparedPlayback, RunSettings, TranslationWorkflow
 
 
@@ -138,7 +138,7 @@ class DocumentTranslationController:
         run_id: int,
         on_progress: Callable[[int, int], None] | None = None,
     ) -> Path | None:
-        translator = DocumentTranslator(OllamaTranslator(model=model))
+        translator = DocumentTranslator(create_translator(model))
         result = translator.translate(
             source,
             destination,

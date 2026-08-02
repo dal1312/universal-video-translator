@@ -64,7 +64,13 @@ from .readiness import (
 from .runtime import RuntimeSupervisor
 from .session import SessionMode, TranslationSession
 from .settings import AppSettings, SettingsStore
-from .tts import KOKORO_VOICES, windows_voice_names
+from .tts import (
+    KOKORO_VOICES,
+    PIPER_VOICES,
+    available_piper_voices,
+    windows_voice_names,
+)
+from .translation import ARGOS_MODEL, ArgosTranslator, create_translator
 from .tray import TrayController
 from .ui_layout import build_window
 from .ui_theme import apply_theme
@@ -1066,7 +1072,7 @@ class TranslatorWindow(tk.Tk):
             self.overlay.show()
             self.overlay_button.configure(text="Nascondi overlay")
             live = LiveTranslator(
-                translator=OllamaTranslator(model=settings.ollama_model),
+                translator=create_translator(settings.ollama_model),
                 cache=TranslationCache(),
                 whisper_model=settings.whisper_model,
                 source_language=settings.language,
@@ -1174,6 +1180,8 @@ class TranslatorWindow(tk.Tk):
         selected_voice = self.voice_var.get()
         if self.speech_engine_var.get() == "kokoro":
             selected_voice = KOKORO_VOICES.get(selected_voice, selected_voice)
+        elif self.speech_engine_var.get() == "piper":
+            selected_voice = PIPER_VOICES.get(selected_voice, selected_voice)
         return RunSettings(
             source=self.file_var.get().strip(),
             ollama_model=self.model_var.get().strip() or "translategemma:latest",
@@ -1190,6 +1198,11 @@ class TranslatorWindow(tk.Tk):
     def _refresh_voices(self, _event=None) -> None:
         if self.speech_engine_var.get() == "kokoro":
             values = tuple(KOKORO_VOICES)
+            self.voice_combo.configure(values=values)
+            self.voice_var.set(values[0])
+            return
+        if self.speech_engine_var.get() == "piper":
+            values = available_piper_voices() or tuple(PIPER_VOICES)
             self.voice_combo.configure(values=values)
             self.voice_var.set(values[0])
             return
@@ -1227,16 +1240,28 @@ class TranslatorWindow(tk.Tk):
         ):
             self.speech_engine_var.set("windows")
             self._refresh_voices()
+        if (
+            self.speech_engine_var.get() == "piper"
+            and not readiness.available("piper")
+        ):
+            self.speech_engine_var.set("windows")
+            self._refresh_voices()
         self.system_status_var.set(readiness.summary())
         if self.status_var.get() in {"Pronto", "Sistema pronto"}:
             self.status_var.set(readiness.summary())
 
     def _load_models(self) -> None:
+        models: list[str] = []
         try:
-            models = OllamaTranslator(model="translategemma:latest").list_models()
-            self._call_in_ui(self._apply_models, models)
+            models.extend(
+                OllamaTranslator(model="translategemma:latest").list_models()
+            )
         except Exception as error:
             log_exception("models", "discovery_failed", error)
+        if ArgosTranslator.available():
+            models.insert(0, ARGOS_MODEL)
+        if models:
+            self._call_in_ui(self._apply_models, models)
 
     def _apply_models(self, models: list[str]) -> None:
         self.model_combo.configure(values=models)

@@ -13,7 +13,7 @@ from .paths import app_paths
 SETTINGS_SCHEMA_VERSION = 1
 _LANGUAGES = {"auto", "inglese", "spagnolo", "francese", "tedesco"}
 _WHISPER_MODELS = {"tiny", "base", "small", "medium"}
-_SPEECH_ENGINES = {"kokoro", "windows"}
+_SPEECH_ENGINES = {"kokoro", "piper", "windows"}
 _BROWSERS = {"firefox", "chrome", "edge", "nessuno"}
 _PERFORMANCE_PROFILES = {"rapido", "bilanciato", "qualita"}
 

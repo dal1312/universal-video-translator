@@ -11,7 +11,7 @@ Version **v0.2.1** adds a safer browser integration: the extension does not read
 - Current version: `0.2.1`.
 - Target platform: Windows 10/11 x64.
 - Recommended distribution: portable ZIP produced by the release pipeline.
-- Processing model: local, using Ollama, Faster-Whisper, and Kokoro or Windows voices.
+- Processing model: local, using Ollama or Argos, Faster-Whisper, and Kokoro, Piper, or Windows voices.
 - Browser extension target: Chrome and Edge, loaded unpacked.
 
 ## Features
@@ -19,8 +19,8 @@ Version **v0.2.1** adds a safer browser integration: the extension does not read
 - Italian translation for local videos, audio, SRT/VTT subtitles, and yt-dlp-supported URLs.
 - YouTube downloads with Deno validation, 720p format limit, and visible progress.
 - Existing subtitle priority with local Faster-Whisper fallback.
-- Local translation through Ollama, with `translategemma:latest` as the default model.
-- Kokoro-82M speech, Windows voices, and serialized speech playback to avoid overlap.
+- Local translation through Ollama, with `translategemma:latest` as the default model, or free offline Argos Translate.
+- Kokoro-82M speech, Piper Italian voices (Paola/Riccardo), Windows voices, and serialized playback to avoid overlap.
 - Progressive player with resizable video, pause, stop, and translated-only audio output.
 - WAV/MP3 export and MP4 creation with an Italian audio track.
 - AI Overlay OS for real-time browser audio translation.
@@ -105,6 +105,22 @@ To pull the default model as part of setup:
 ```powershell
 scripts\windows\Install-Windows.ps1 -PullModel
 ```
+
+### Optional free engines
+
+Argos translates fully offline without Ollama. Piper adds the Italian Paola
+and Riccardo voices through an environment kept separate from the application.
+Review the model licenses before downloading, then install only what you need:
+
+```powershell
+.\INSTALLA_MOTORI_OPZIONALI_WINDOWS.bat -Argos -AcceptModelLicenses
+.\INSTALLA_MOTORI_OPZIONALI_WINDOWS.bat -Piper -AcceptPiperGPL -AcceptModelLicenses
+```
+
+Without engine switches the script prepares both, while still requiring the
+license-acceptance switches. Data is stored under
+`%LOCALAPPDATA%\UniversalVideoTranslator`; Piper is not bundled into the
+Apache-2.0 distribution.
 
 ## Manual Startup
 
@@ -235,7 +251,7 @@ Bundled and external components are documented in `THIRD_PARTY_NOTICES.md`.
 
 - SoundVolumeView 2.53 is bundled unchanged for per-application audio routing.
 - FFmpeg full build is copied into the Windows package.
-- Ollama, Deno, VB-Cable, and translation/speech models remain external local components.
+- Ollama, Piper, Deno, VB-Cable, and models remain external local components; the Argos library is bundled while language packages are downloaded on request.
 
 Review licensing terms before redistributing the package in commercial contexts.
 

@@ -5,8 +5,9 @@ import sys
 import time
 
 from .cache import TranslationCache
-from .ollama import OllamaError, OllamaTranslator
+from .ollama import OllamaError
 from .subtitles import load_subtitles
+from .translation import ArgosError, create_translator
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
 
         engine = pyttsx3.init()
         engine.setProperty("rate", args.rate)
-        translator = OllamaTranslator(model=args.model)
+        translator = create_translator(args.model)
         cache = TranslationCache()
         started = time.monotonic()
 
@@ -72,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
             engine.say(translated)
             engine.runAndWait()
         return 0
-    except (OSError, ValueError, OllamaError) as exc:
+    except (OSError, ValueError, OllamaError, ArgosError) as exc:
         print(f"Errore: {exc}", file=sys.stderr)
         return 1
 

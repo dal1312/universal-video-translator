@@ -40,6 +40,19 @@ def test_readiness_distinguishes_required_and_optional_components() -> None:
     assert not optional.available("kokoro")
 
 
+def test_argos_can_replace_ollama_for_core_readiness() -> None:
+    readiness = SystemReadiness(
+        (
+            ComponentStatus("ollama", "Ollama", False, "traduzione"),
+            ComponentStatus("argos", "Argos", True, "traduzione"),
+            ComponentStatus("ffmpeg", "FFmpeg", True, "media"),
+        )
+    )
+
+    assert readiness.core_ready
+    assert readiness.summary() == "Componenti opzionali mancanti: Ollama"
+
+
 def test_model_selection_preserves_preference_and_uses_fallbacks() -> None:
     models = ["qwen3:4b", "translategemma:latest"]
 

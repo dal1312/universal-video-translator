@@ -11,7 +11,7 @@ La versione **v0.2.1** introduce l'integrazione browser sicura: l'estensione non
 - Versione corrente: `0.2.1`.
 - Piattaforma target: Windows 10/11 x64.
 - Distribuzione consigliata: ZIP portatile generato dalla pipeline di release.
-- Elaborazione: locale, con Ollama, Faster-Whisper e Kokoro/Windows voices.
+- Elaborazione: locale, con Ollama o Argos, Faster-Whisper e voci Kokoro, Piper o Windows.
 - Browser supportati dall'estensione: Chrome ed Edge in modalita' unpacked.
 
 ## Funzionalita'
@@ -19,8 +19,8 @@ La versione **v0.2.1** introduce l'integrazione browser sicura: l'estensione non
 - Traduzione italiana di video locali, audio, sottotitoli SRT/VTT e URL supportati da yt-dlp.
 - Download YouTube con controllo Deno, limite qualita' 720p e avanzamento visibile.
 - Uso prioritario dei sottotitoli esistenti; fallback locale con Faster-Whisper.
-- Traduzione locale tramite Ollama, con `translategemma:latest` come modello predefinito.
-- Sintesi vocale Kokoro-82M, voci Windows e coda vocale anti-sovrapposizione.
+- Traduzione locale tramite Ollama, con `translategemma:latest` come modello predefinito, oppure Argos Translate offline gratuito.
+- Sintesi vocale Kokoro-82M, Piper (Paola/Riccardo), voci Windows e coda vocale anti-sovrapposizione.
 - Player progressivo con video ridimensionabile, pausa, stop e audio italiano senza traccia originale in sottofondo.
 - Esportazione audio WAV/MP3 e creazione MP4 con traccia italiana.
 - AI Overlay OS per tradurre in tempo reale l'audio del browser.
@@ -107,6 +107,23 @@ Per scaricare anche il modello predefinito:
 ```powershell
 scripts\windows\Install-Windows.ps1 -PullModel
 ```
+
+### Motori gratuiti opzionali
+
+Argos traduce interamente offline senza Ollama. Piper aggiunge le voci italiane
+Paola e Riccardo tramite un ambiente esterno separato dall'app. Prima del
+download consulta le licenze dei modelli, quindi esegui solo i componenti che
+vuoi installare:
+
+```powershell
+.\INSTALLA_MOTORI_OPZIONALI_WINDOWS.bat -Argos -AcceptModelLicenses
+.\INSTALLA_MOTORI_OPZIONALI_WINDOWS.bat -Piper -AcceptPiperGPL -AcceptModelLicenses
+```
+
+Senza parametri lo script prepara entrambi i motori, ma richiede comunque le
+due accettazioni. I dati vengono salvati in
+`%LOCALAPPDATA%\UniversalVideoTranslator`; Piper non viene incorporato nella
+distribuzione Apache 2.0.
 
 ## Avvio Manuale
 
@@ -246,7 +263,7 @@ La distribuzione include o usa componenti esterni, documentati in `THIRD_PARTY_N
 
 - SoundVolumeView 2.53 e' incluso intatto per il routing audio per-app.
 - FFmpeg full build viene copiato nella build Windows.
-- Ollama, Deno, VB-Cable e i modelli restano componenti esterni/locali.
+- Ollama, Piper, Deno, VB-Cable e i modelli restano componenti esterni/locali; la libreria Argos è inclusa ma i suoi pacchetti linguistici sono scaricati su richiesta.
 
 Verifica le condizioni di licenza prima di ridistribuire il pacchetto in contesti commerciali.
 

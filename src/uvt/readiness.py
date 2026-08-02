@@ -4,6 +4,9 @@ import importlib.util
 import shutil
 from dataclasses import dataclass
 
+from .paths import app_paths
+from .translation import ArgosTranslator
+
 
 @dataclass(frozen=True, slots=True)
 class ComponentStatus:
@@ -23,9 +26,8 @@ class SystemReadiness:
 
     @property
     def core_ready(self) -> bool:
-        required = {"ollama", "ffmpeg"}
-        return all(
-            item.available for item in self.components if item.key in required
+        return self.available("ffmpeg") and (
+            self.available("ollama") or self.available("argos")
         )
 
     def available(self, key: str) -> bool:
@@ -51,6 +53,18 @@ def detect_system_readiness() -> SystemReadiness:
             "trascrizione",
         ),
         ("kokoro", "Kokoro", _module_available("kokoro"), "voce neurale"),
+        (
+            "piper",
+            "Piper opzionale",
+            _piper_available(),
+            "voce leggera",
+        ),
+        (
+            "argos",
+            "Argos opzionale",
+            ArgosTranslator.available(),
+            "traduzione fallback",
+        ),
         (
             "soundcard",
             "SoundCard",
@@ -89,6 +103,13 @@ def _module_available(module: str) -> bool:
         return importlib.util.find_spec(module) is not None
     except (ImportError, AttributeError, ValueError):
         return False
+
+
+def _piper_available() -> bool:
+    runtime = app_paths().piper_runtime
+    return (runtime / "Scripts" / "python.exe").is_file() or (
+        runtime / "bin" / "python"
+    ).is_file()
 
 
 def _with_latest(model: str) -> str:

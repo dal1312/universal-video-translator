@@ -44,6 +44,18 @@ class AppPaths:
     def glossary(self) -> Path:
         return self.root / "glossary.json"
 
+    @property
+    def engines(self) -> Path:
+        return self.root / "engines"
+
+    @property
+    def piper_runtime(self) -> Path:
+        return self.engines / "piper" / ".venv"
+
+    @property
+    def piper_voices(self) -> Path:
+        return self.root / "voices" / "piper"
+
 
 def default_app_root() -> Path:
     local_app_data = os.environ.get("LOCALAPPDATA")

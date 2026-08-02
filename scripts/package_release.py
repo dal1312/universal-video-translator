@@ -21,6 +21,7 @@ PAYLOAD_DOCUMENTS = (
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "WINDOWS_BENCHMARK.json",
+    "INSTALLA_MOTORI_OPZIONALI_WINDOWS.bat",
     "VERIFY_RELEASE_WINDOWS.ps1",
 )
 
@@ -53,6 +54,10 @@ def copy_payload(source: Path, target: Path, repo: Path) -> None:
         if not path.is_file():
             raise FileNotFoundError(f"Release document missing: {name}")
         shutil.copy2(path, target / name)
+    shutil.copy2(
+        repo / "scripts" / "windows" / "Install-Optional-Engines.ps1",
+        target / "INSTALLA_MOTORI_OPZIONALI_WINDOWS.ps1",
+    )
     licenses = target / "licenses"
     licenses.mkdir(exist_ok=True)
     shutil.copy2(

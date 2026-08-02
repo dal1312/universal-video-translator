@@ -24,10 +24,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         __version__,
         bool(getattr(sys, "frozen", False)),
     )
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments == ["--install-argos-models"]:
+        try:
+            from .optional_engines import install_argos_packages
+
+            install_argos_packages()
+            return 0
+        except Exception as error:
+            log_exception("bootstrap", "argos_install_failed", error)
+            _show_fatal_error(f"Installazione modelli Argos fallita: {error}")
+            return 1
     try:
         from .gui import main as gui_main
 
-        result = gui_main(argv)
+        result = gui_main(arguments)
     except (KeyboardInterrupt, SystemExit):
         raise
     except Exception as error:

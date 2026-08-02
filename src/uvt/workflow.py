@@ -9,10 +9,10 @@ from .cache import TranslationCache
 from .downloader import download_video, is_web_url
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .media_player import MediaPreview
-from .ollama import OllamaTranslator
 from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
 from .transcription import load_cues
+from .translation import create_translator
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +57,7 @@ class TranslationWorkflow:
             raise ValueError("Nessuna battuta rilevata.")
         common = {
             "cues": cues,
-            "translator": OllamaTranslator(model=settings.ollama_model),
+            "translator": create_translator(settings.ollama_model),
             "cache": TranslationCache(),
             "source_language": settings.language,
             "rate": settings.rate,
@@ -95,7 +95,7 @@ class TranslationWorkflow:
         return export_italian_audio(
             cues,
             destination,
-            translator=OllamaTranslator(model=settings.ollama_model),
+            translator=create_translator(settings.ollama_model),
             cache=TranslationCache(),
             source_language=settings.language,
             rate=settings.rate,
@@ -121,7 +121,7 @@ class TranslationWorkflow:
             export_italian_audio(
                 cues,
                 audio,
-                translator=OllamaTranslator(model=settings.ollama_model),
+                translator=create_translator(settings.ollama_model),
                 cache=TranslationCache(),
                 source_language=settings.language,
                 rate=settings.rate,
