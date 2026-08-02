@@ -19,6 +19,7 @@ def test_argos_translator_uses_selected_source_language(monkeypatch) -> None:
     package.translate = module  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "argostranslate", package)
     monkeypatch.setitem(sys.modules, "argostranslate.translate", module)
+    monkeypatch.setattr("uvt.translation._configure_argos_offline", lambda: None)
 
     translator = ArgosTranslator()
 

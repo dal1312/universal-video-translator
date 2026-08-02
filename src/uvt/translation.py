@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -16,6 +17,22 @@ _LANGUAGE_CODES = {
     "tedesco": "de",
     "italiano": "it",
 }
+
+
+def _configure_argos_offline() -> None:
+    """Use a deterministic sentence splitter without model downloads."""
+    import argostranslate.sbd as argos_sbd
+
+    if getattr(argos_sbd.StanzaSentencizer, "_uvt_offline", False):
+        return
+
+    def split_sentences(_sentencizer, text: str) -> list[str]:
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        return [sentence for sentence in sentences if sentence] or [text]
+
+    argos_sbd.StanzaSentencizer.split_sentences = split_sentences
+    argos_sbd.MiniSBDSentencizer.split_sentences = split_sentences
+    argos_sbd.StanzaSentencizer._uvt_offline = True
 
 
 class TranslationEngine(Protocol):
@@ -64,6 +81,8 @@ class ArgosTranslator:
         try:
             import argostranslate.translate as argos_translate
 
+            _configure_argos_offline()
+
             languages = argos_translate.get_installed_languages()
             italian = next(
                 (language for language in languages if language.code == "it"),
@@ -104,6 +123,8 @@ class ArgosTranslator:
             return text
         try:
             import argostranslate.translate as argos_translate
+
+            _configure_argos_offline()
         except ImportError as error:
             raise ArgosError(
                 "Argos Translate non installato. Esegui "
@@ -116,7 +137,7 @@ class ArgosTranslator:
             translated = argos_translate.translate(text, source_code, "it")
         except Exception as error:
             raise ArgosError(
-                f"Pacchetto Argos {source_code}→it non disponibile. "
+                f"Pacchetto Argos {source_code}->it non disponibile. "
                 "Installa i modelli opzionali e riprova."
             ) from error
         if not translated.strip() or translated.strip() == text.strip():
