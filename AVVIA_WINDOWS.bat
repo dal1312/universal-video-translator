@@ -8,8 +8,11 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
+set "UVT_OLLAMA=ollama.exe"
 where ollama.exe >nul 2>nul
-if not errorlevel 1 start "" /b ollama serve >nul 2>nul
+if errorlevel 1 if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" set "UVT_OLLAMA=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
+if exist "%UVT_OLLAMA%" start "" /b "%UVT_OLLAMA%" serve >nul 2>nul
+if "%UVT_OLLAMA%"=="ollama.exe" where ollama.exe >nul 2>nul && start "" /b ollama serve >nul 2>nul
 ".venv\Scripts\python.exe" universal_video_translator.py
 set "UVT_EXIT=%ERRORLEVEL%"
 exit /b %UVT_EXIT%

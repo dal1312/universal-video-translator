@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
+from .executables import find_executable
 from .subtitles import Cue, collapse_rolling_cues
 
 
@@ -13,17 +12,14 @@ class TranscriptionError(RuntimeError):
     pass
 
 
+def find_media_tool(name: str) -> str | None:
+    return find_executable(name)
+
+
 def ensure_ffmpeg() -> str:
-    executable = shutil.which("ffmpeg")
+    executable = find_media_tool("ffmpeg")
     if executable:
         return executable
-    candidates = [
-        Path(sys.executable).resolve().parent / "ffmpeg.exe",
-        Path(sys.executable).resolve().parent / "_internal" / "ffmpeg.exe",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return str(candidate)
     raise TranscriptionError(
         "FFmpeg non trovato. Installalo o ricostruisci l'app con "
         "BUILD_EXE_WINDOWS.bat."
@@ -74,6 +70,19 @@ def transcribe_media(
                 str(audio),
                 language=None if language in {None, "", "auto"} else language,
                 vad_filter=True,
+            )
+            cues = [
+                Cue(float(segment.start), float(segment.end), segment.text.strip())
+                for segment in segments
+                if segment.text.strip()
+            ]
+            if cues:
+                return cues
+            segments, _info = whisper.transcribe(
+                str(audio),
+                language=None if language in {None, "", "auto"} else language,
+                vad_filter=False,
+                condition_on_previous_text=False,
             )
             return [
                 Cue(float(segment.start), float(segment.end), segment.text.strip())

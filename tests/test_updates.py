@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 
-from uvt.updates import AutomaticUpdater, _safe_extract, is_newer
+from uvt.updates import AutomaticUpdater, _require_https, _safe_extract, is_newer
 
 
 def test_semantic_update_comparison() -> None:
@@ -44,3 +44,9 @@ def test_source_install_reports_update_without_mutating_files(monkeypatch) -> No
 
     assert result.status == "available"
     assert result.version == "0.2.2"
+
+
+def test_update_downloads_require_https() -> None:
+    _require_https("https://example.com/update.zip")
+    with pytest.raises(ValueError, match="non sicuro"):
+        _require_https("http://example.com/update.zip")

@@ -59,7 +59,7 @@ class LocalBrowserBridge:
                 self._cors()
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                 self.send_header(
-                    "Access-Control-Allow-Headers", "Content-Type, X-UVT-Client"
+                    "Access-Control-Allow-Headers", "Content-Type"
                 )
                 self.send_header("Access-Control-Allow-Private-Network", "true")
                 self.end_headers()
@@ -110,9 +110,7 @@ class LocalBrowserBridge:
 
             def _authorized(self) -> bool:
                 origin = self.headers.get("Origin")
-                if origin is not None:
-                    return bridge._origin_allowed(origin)
-                return self.headers.get("X-UVT-Client") == "uvt-extension-v1"
+                return bridge._origin_allowed(origin)
 
             def log_message(self, _format: str, *_args) -> None:
                 return

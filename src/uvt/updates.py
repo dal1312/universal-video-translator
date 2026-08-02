@@ -10,6 +10,7 @@ import sys
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 
@@ -65,6 +66,8 @@ class AutomaticUpdater:
         checksum_name = f"{archive_name}.sha256"
         if not assets.get(archive_name) or not assets.get(checksum_name):
             return UpdateResult("unavailable", version, "Pacchetto firmato non disponibile")
+        _require_https(assets[archive_name])
+        _require_https(assets[checksum_name])
         self.root.mkdir(parents=True, exist_ok=True)
         archive = self.root / archive_name
         expected = self._download_text(assets[checksum_name]).split()[0].lower()
@@ -83,6 +86,11 @@ class AutomaticUpdater:
         executable = payload / "UniversalVideoTranslator.exe"
         if not executable.is_file():
             raise ValueError("Eseguibile mancante nel pacchetto di aggiornamento")
+        if os.name == "nt" and not _signatures_match(
+            executable, Path(sys.executable)
+        ):
+            shutil.rmtree(stage, ignore_errors=True)
+            raise ValueError("Firma digitale dell'aggiornamento non valida")
         pending = {
             "version": version,
             "payload": str(payload.resolve()),
@@ -101,9 +109,16 @@ class AutomaticUpdater:
     def _download_file(self, url: str, destination: Path) -> None:
         with self.session.get(url, timeout=60, stream=True) as response:
             response.raise_for_status()
+            content_length = int(response.headers.get("Content-Length", "0") or 0)
+            if content_length > 2 * 1024 * 1024 * 1024:
+                raise ValueError("Pacchetto di aggiornamento troppo grande")
+            downloaded = 0
             with destination.open("wb") as handle:
                 for chunk in response.iter_content(1024 * 1024):
                     if chunk:
+                        downloaded += len(chunk)
+                        if downloaded > 2 * 1024 * 1024 * 1024:
+                            raise ValueError("Pacchetto di aggiornamento troppo grande")
                         handle.write(chunk)
 
 
@@ -115,9 +130,12 @@ def launch_pending_update() -> bool:
         pending = json.loads(pending_path.read_text(encoding="utf-8"))
         payload = Path(pending["payload"]).resolve()
         target = Path(pending["target"]).resolve()
-        if not (payload / "UniversalVideoTranslator.exe").is_file():
+        candidate = payload / "UniversalVideoTranslator.exe"
+        if not candidate.is_file():
             return False
         if target != Path(sys.executable).resolve().parent:
+            return False
+        if not _signatures_match(candidate, Path(sys.executable)):
             return False
         script = app_paths().updates / "apply-update.ps1"
         quoted_payload = str(payload).replace("'", "''")
@@ -154,6 +172,43 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _require_https(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("URL aggiornamento non sicuro")
+
+
+def _signature_thumbprint(executable: Path) -> str | None:
+    escaped = str(executable.resolve()).replace("'", "''")
+    command = (
+        f"$s=Get-AuthenticodeSignature -LiteralPath '{escaped}'; "
+        "if ($s.Status -eq 'Valid' -and $s.SignerCertificate) "
+        "{ Write-Output $s.SignerCertificate.Thumbprint; exit 0 } else { exit 1 }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+            check=False,
+            capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    thumbprint = result.stdout.decode(errors="replace").strip().upper()
+    return thumbprint if result.returncode == 0 and thumbprint else None
+
+
+def _signatures_match(candidate: Path, installed: Path) -> bool:
+    candidate_thumbprint = _signature_thumbprint(candidate)
+    installed_thumbprint = _signature_thumbprint(installed)
+    return bool(
+        candidate_thumbprint
+        and installed_thumbprint
+        and candidate_thumbprint == installed_thumbprint
+    )
 
 
 def _safe_extract(archive: Path, destination: Path) -> None:

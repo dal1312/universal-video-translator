@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
-from .transcription import ensure_ffmpeg
+from .transcription import ensure_ffmpeg, find_media_tool
 
 
 class MediaPreview:
@@ -17,25 +15,11 @@ class MediaPreview:
 
     @staticmethod
     def _ffplay() -> str | None:
-        executable = shutil.which("ffplay")
-        if executable:
-            return executable
-        root = Path(sys.executable).resolve().parent
-        for candidate in (root / "ffplay.exe", root / "_internal" / "ffplay.exe"):
-            if candidate.is_file():
-                return str(candidate)
-        return None
+        return find_media_tool("ffplay")
 
     @staticmethod
     def _ffprobe() -> str | None:
-        executable = shutil.which("ffprobe")
-        if executable:
-            return executable
-        root = Path(sys.executable).resolve().parent
-        for candidate in (root / "ffprobe.exe", root / "_internal" / "ffprobe.exe"):
-            if candidate.is_file():
-                return str(candidate)
-        return None
+        return find_media_tool("ffprobe")
 
     @staticmethod
     def _has_media_streams(media: str | Path) -> tuple[bool, bool]:

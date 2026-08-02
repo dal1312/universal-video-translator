@@ -43,7 +43,6 @@ async function sendCommand(command, profile, now) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-UVT-Client": "uvt-extension-v1",
       },
       body: JSON.stringify({ command, profile, browser: browserName() }),
     });

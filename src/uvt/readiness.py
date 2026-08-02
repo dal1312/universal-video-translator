@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
-import shutil
 from dataclasses import dataclass
 
 from .paths import app_paths
+from .ollama import ollama_executable
+from .transcription import TranscriptionError, ensure_ffmpeg
 from .translation import ArgosTranslator
 
 
@@ -44,8 +45,8 @@ class SystemReadiness:
 
 def detect_system_readiness() -> SystemReadiness:
     specifications = (
-        ("ollama", "Ollama", bool(shutil.which("ollama")), "traduzione"),
-        ("ffmpeg", "FFmpeg", bool(shutil.which("ffmpeg")), "media"),
+        ("ollama", "Ollama", bool(ollama_executable()), "traduzione"),
+        ("ffmpeg", "FFmpeg", _ffmpeg_available(), "media"),
         (
             "faster_whisper",
             "Faster-Whisper",
@@ -110,6 +111,14 @@ def _piper_available() -> bool:
     return (runtime / "Scripts" / "python.exe").is_file() or (
         runtime / "bin" / "python"
     ).is_file()
+
+
+def _ffmpeg_available() -> bool:
+    try:
+        ensure_ffmpeg()
+    except TranscriptionError:
+        return False
+    return True
 
 
 def _with_latest(model: str) -> str:

@@ -72,6 +72,21 @@ def test_bridge_rejects_web_pages_and_invalid_commands() -> None:
         bridge.close()
 
 
+def test_bridge_rejects_static_header_without_extension_origin() -> None:
+    bridge = LocalBrowserBridge(port=0)
+    assert bridge.start()
+    try:
+        request = Request(
+            f"http://127.0.0.1:{bridge.port}/v1/status",
+            headers={"X-UVT-Client": "uvt-extension-v1"},
+        )
+        with pytest.raises(HTTPError) as forbidden:
+            urlopen(request, timeout=2)
+        assert forbidden.value.code == 403
+    finally:
+        bridge.close()
+
+
 def test_bridge_accepts_explicit_quit_command() -> None:
     bridge = LocalBrowserBridge(port=0)
     assert bridge.start()

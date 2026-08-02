@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 from difflib import SequenceMatcher
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -13,10 +12,15 @@ import requests
 from langdetect import DetectorFactory, LangDetectException, detect_langs
 
 from .glossary import TranslationGlossary
+from .executables import find_executable
 
 
 class OllamaError(RuntimeError):
     pass
+
+
+def ollama_executable() -> str | None:
+    return find_executable("ollama")
 
 
 _NON_ITALIAN_OUTPUT = re.compile(
@@ -150,7 +154,7 @@ class OllamaTranslator:
         try:
             models = self._installed_models()
         except requests.RequestException:
-            executable = shutil.which("ollama")
+            executable = ollama_executable()
             if not executable:
                 raise OllamaError(
                     "Ollama non trovato. Installalo oppure aggiungilo al PATH."

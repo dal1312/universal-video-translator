@@ -32,7 +32,6 @@ async function refreshStatus() {
   try {
     const response = await fetch(BRIDGE_STATUS_URL, {
       cache: "no-store",
-      headers: { "X-UVT-Client": "uvt-extension-v1" },
     });
     if (!response.ok) throw new Error("offline");
     const state = await response.json();

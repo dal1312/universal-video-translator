@@ -5,6 +5,7 @@ import re
 import sys
 import threading
 import time
+import warnings
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -47,6 +48,17 @@ class LiveCaptureError(RuntimeError):
 
 def _normalized_words(text: str) -> list[str]:
     return [item.casefold() for item in _WORD.findall(text)]
+
+
+def compact_speech_text(text: str, max_words: int) -> str:
+    """Shorten delayed speech without another model call."""
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    first_sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0]
+    sentence_words = first_sentence.split()
+    selected = sentence_words if len(sentence_words) <= max_words else words
+    return " ".join(selected[:max_words]).rstrip(" ,;:-") + "…"
 
 
 def is_probable_echo(text: str, spoken_history: list[str]) -> bool:
@@ -260,6 +272,17 @@ class LiveTranslator:
         try:
             import soundcard as sc
 
+            warning_category = getattr(sc, "SoundcardRuntimeWarning", None)
+            if (
+                isinstance(warning_category, type)
+                and issubclass(warning_category, Warning)
+            ):
+                warnings.filterwarnings(
+                    "ignore",
+                    message="data discontinuity in recording",
+                    category=warning_category,
+                )
+
             # SoundCard performs its own first COM initialization at import.
             com_initialized = initialize_windows_com()
             if self.capture_device:
@@ -349,8 +372,17 @@ class LiveTranslator:
                     else _SpeechItem(str(item), time.monotonic())
                 )
                 text = speech_item.text
-                self._spoken_history.append(text)
                 queue_ms = (time.monotonic() - speech_item.queued_at) * 1000
+                compressed = False
+                if queue_ms > 1800:
+                    word_budget = max(
+                        6,
+                        round(speech_item.source_duration_seconds * 3.0),
+                    )
+                    compacted = compact_speech_text(text, word_budget)
+                    compressed = compacted != text
+                    text = compacted
+                self._spoken_history.append(text)
                 adaptive_rate = self._adaptive_sync.next_rate(
                     queue_ms=queue_ms,
                     text=text,
@@ -366,6 +398,7 @@ class LiveTranslator:
                         "adaptive_speed": round(
                             self._adaptive_sync.multiplier, 2
                         ),
+                        "speech_compressed": int(compressed),
                     }
                 )
                 ducked = bool(
@@ -452,7 +485,6 @@ class LiveTranslator:
                     samples = audio.samples
                     capture_ms = audio.duration_seconds * 1000
                     queue_ms = (time.monotonic() - audio.ready_at) * 1000
-                    audio_ready_at = audio.ready_at
                     if queue_ms > self.profile.max_queue_delay_seconds * 1000:
                         dropped_segments += 1
                         self.on_metrics(
@@ -469,7 +501,6 @@ class LiveTranslator:
                     samples = audio
                     capture_ms = 0.0
                     queue_ms = 0.0
-                    audio_ready_at = time.monotonic()
                 mono = np.asarray(samples, dtype=np.float32)
                 if mono.ndim > 1:
                     mono = mono.mean(axis=1)
@@ -577,7 +608,7 @@ class LiveTranslator:
                         self._speech_queue,
                         _SpeechItem(
                             translated,
-                            audio_ready_at,
+                            time.monotonic(),
                             capture_ms / 1000,
                         ),
                     )
