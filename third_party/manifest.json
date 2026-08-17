@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "name": "SoundVolumeView",
+      "version": "2.53",
+      "source": "https://www.nirsoft.net/utils/sound_volume_view.html",
+      "license_file": "SoundVolumeView/readme.txt",
+      "redistribution_note": "Free redistribution is subject to the conditions in the unmodified vendor readme.",
+      "files": {
+        "SoundVolumeView/SoundVolumeView.exe": "b5af5bd60f7a29af8cb4d8a566382b90f0fe07cac97228d218cb913f3382d647",
+        "SoundVolumeView/SoundVolumeView.chm": "e6c46d1c8b88d48f5b9152ec74ee43eca45cd9e0298d0b62fc7d812a4c2d3167",
+        "SoundVolumeView/readme.txt": "8b587f0b2ad6f694197bfac34ccf558d27851c64661e203af3eeec1b00a3c5ce"
+      }
+    },
+    {
+      "name": "FFmpeg",
+      "version": "8.1.2 full build",
+      "source": "https://www.gyan.dev/ffmpeg/builds/",
+      "license": "GPL-3.0-or-later",
+      "license_file_in_release": "licenses/FFmpeg-LICENSE.txt",
+      "note": "Executable hashes are recorded in PROVENANCE.json and SHA256SUMS.txt at package time."
+    }
+  ]
+}

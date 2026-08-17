@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Protocol
-
 
 KOKORO_VOICES = {
     "Sara (Kokoro, donna)": "if_sara",
@@ -17,35 +17,7 @@ class SpeechEngine(Protocol):
 
     def stop(self) -> None: ...
 
-
-class WindowsSpeech:
-    def __init__(self, rate: int = 185, voice: str = "default") -> None:
-        import pyttsx3
-
-        self.engine = pyttsx3.init()
-        self.engine.setProperty("rate", rate)
-        if voice != "default":
-            for item in self.engine.getProperty("voices"):
-                if voice.casefold() in {
-                    str(item.id).casefold(),
-                    str(item.name).casefold(),
-                }:
-                    self.engine.setProperty("voice", item.id)
-                    break
-
-    def speak(self, text: str) -> None:
-        self.engine.say(text)
-        self.engine.runAndWait()
-
-    def save(self, text: str, destination: str | Path) -> None:
-        self.engine.save_to_file(text, str(destination))
-        self.engine.runAndWait()
-
-    def stop(self) -> None:
-        self.engine.stop()
-
-    def prewarm(self, _text: str) -> None:
-        return
+    def set_rate(self, rate: int) -> None: ...
 
 
 class SilentSpeech:
@@ -56,6 +28,9 @@ class SilentSpeech:
         return
 
     def stop(self) -> None:
+        return
+
+    def set_rate(self, _rate: int) -> None:
         return
 
     def prewarm(self, _text: str) -> None:
@@ -70,36 +45,42 @@ class KokoroSpeech:
             raise RuntimeError(
                 "Kokoro non installato. Esegui: pip install -e .[kokoro]"
             ) from exc
-        self.pipeline = KPipeline(
-            lang_code="i", repo_id="hexgrad/Kokoro-82M"
-        )
+        self.pipeline = KPipeline(lang_code="i", repo_id="hexgrad/Kokoro-82M")
         self.voice = voice if voice in KOKORO_VOICES.values() else "if_sara"
         self.speed = max(0.65, min(1.5, rate / 185))
         self._player = None
         self._prepared: dict[str, object] = {}
+        self._prepared_lock = threading.Lock()
+        self._render_lock = threading.Lock()
 
     def _generate_audio(self, text: str, speed: float):
         import numpy as np
 
-        chunks = [
-            np.asarray(audio, dtype=np.float32)
-            for _graphemes, _phonemes, audio in self.pipeline(
-                text, voice=self.voice, speed=speed
-            )
-        ]
+        with self._render_lock:
+            chunks = [
+                np.asarray(audio, dtype=np.float32)
+                for _graphemes, _phonemes, audio in self.pipeline(
+                    text, voice=self.voice, speed=speed
+                )
+            ]
         if not chunks:
             raise RuntimeError("Kokoro non ha generato audio.")
         return np.concatenate(chunks)
 
     def _audio(self, text: str):
-        prepared = self._prepared.pop(text, None)
+        with self._prepared_lock:
+            prepared = self._prepared.pop(text, None)
         if prepared is not None:
             return prepared
         return self._generate_audio(text, self.speed)
 
     def prewarm(self, text: str) -> None:
-        if text not in self._prepared:
-            self._prepared[text] = self._audio(text)
+        with self._prepared_lock:
+            if text in self._prepared:
+                return
+        audio = self._generate_audio(text, self.speed)
+        with self._prepared_lock:
+            self._prepared.setdefault(text, audio)
 
     def speak(self, text: str) -> None:
         import soundcard as sc
@@ -124,35 +105,37 @@ class KokoroSpeech:
     def render_to_duration(self, text: str, max_duration: float):
         audio = self._audio(text)
         if max_duration > 0 and len(audio) > round(max_duration * 24000):
-            required_speed = self.speed * len(audio) / (
-                max_duration * 24000
-            )
-            audio = self._generate_audio(
-                text, min(2.2, required_speed * 1.03)
-            )
+            required_speed = self.speed * len(audio) / (max_duration * 24000)
+            audio = self._generate_audio(text, min(2.2, required_speed * 1.03))
         return audio, 24000
 
     def stop(self) -> None:
         self._player = None
 
+    def set_rate(self, rate: int) -> None:
+        self.speed = max(0.65, min(1.65, int(rate) / 185))
+
 
 def create_speech_engine(
-    engine: str = "windows", voice: str = "default", rate: int = 185
+    engine: str = "kokoro", voice: str = "Sara (Kokoro, donna)", rate: int = 185
 ) -> SpeechEngine:
+    engine = compatible_speech_engine(engine, voice)
     if engine == "silent":
         return SilentSpeech()
     if engine == "kokoro":
-        return KokoroSpeech(rate=rate, voice=voice)
-    return WindowsSpeech(rate=rate, voice=voice)
+        # Kokoro is an explicit voice choice. Never silently replace it with
+        # a Windows SAPI voice: a missing neural engine must be visible to the
+        # user so the selected voice remains predictable.
+        return KokoroSpeech(
+            rate=rate,
+            voice=KOKORO_VOICES.get(voice, KOKORO_VOICES["Sara (Kokoro, donna)"]),
+        )
+    raise RuntimeError(
+        "Sono disponibili solo le voci neurali Kokoro. "
+        "Seleziona Sara o Nicola nelle impostazioni."
+    )
 
 
-def windows_voice_names() -> list[str]:
-    try:
-        import pyttsx3
-
-        engine = pyttsx3.init()
-        names = [str(item.name) for item in engine.getProperty("voices")]
-        engine.stop()
-        return names
-    except Exception:
-        return []
+def compatible_speech_engine(engine: str, voice: str) -> str:
+    """Migrate legacy SAPI/Piper selections to the supported Kokoro engine."""
+    return "kokoro"

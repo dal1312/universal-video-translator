@@ -1,47 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-
-where python >nul 2>nul || (
-  echo ERRORE: Python non trovato nel PATH.
-  pause
-  exit /b 1
-)
-
-if not exist ".venv\Scripts\python.exe" python -m venv .venv
-call ".venv\Scripts\activate.bat"
-python -m pip install --upgrade pip
-python -m pip install -e ".[all]"
-if errorlevel 1 (
-  echo.
-  echo ERRORE: installazione delle dipendenze non riuscita.
-  pause
-  exit /b 1
-)
-
-where ffmpeg >nul 2>nul || (
-  echo.
-  echo ATTENZIONE: FFmpeg non trovato.
-  echo Installa FFmpeg e aggiungilo al PATH prima di tradurre video o audio.
-)
-
-where ollama >nul 2>nul || (
-  echo.
-  echo ATTENZIONE: Ollama non trovato.
-  echo Scaricalo da https://ollama.com/download/windows
-  goto done
-)
-
-ollama pull translategemma:latest
-
-where espeak-ng >nul 2>nul || (
-  echo.
-  echo ATTENZIONE: Kokoro richiede eSpeak NG per la voce italiana.
-  echo Installa eSpeak NG x64 dal progetto ufficiale:
-  echo https://github.com/espeak-ng/espeak-ng/releases
-)
-
-:done
-echo.
-echo Installazione completata. Avvia con AVVIA_WINDOWS.bat
-pause
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\windows\Install-Windows.ps1" %*
+set "UVT_EXIT=%ERRORLEVEL%"
+if not "%UVT_NONINTERACTIVE%"=="1" pause
+exit /b %UVT_EXIT%

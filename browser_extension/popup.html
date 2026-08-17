@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Universal Video Translator</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header>
+      <span class="eyebrow">LOCAL AI</span>
+      <h1>Universal Video Translator</h1>
+      <p>Controlla AI Overlay senza lasciare il video aperto.</p>
+    </header>
+    <main>
+      <section class="telemetry" aria-label="Stato UVT">
+        <div><span id="connection-dot" class="dot"></span><span id="connection">Connessione…</span></div>
+        <strong id="session">UVT non rilevato</strong>
+        <span id="latency">Latenza: —</span>
+        <span id="details"></span>
+      </section>
+      <label for="profile">Profilo</label>
+      <select id="profile">
+        <option value="rapido">Rapido</option>
+        <option value="bilanciato">Bilanciato</option>
+        <option value="qualita">Qualità</option>
+      </select>
+      <button id="start" class="primary">Avvia AI Overlay</button>
+      <div class="actions">
+        <button id="focus">Apri UVT</button>
+        <button id="stop" class="danger">Stop</button>
+      </div>
+      <button id="quit" class="quiet-danger">Esci completamente da UVT</button>
+      <div id="status" role="status">Pronto</div>
+      <p class="hint">UVT lavora in background. Usa “Apri UVT” solo quando vuoi vedere la finestra desktop.</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

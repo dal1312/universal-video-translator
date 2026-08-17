@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 from difflib import SequenceMatcher
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -12,9 +11,16 @@ from urllib.parse import urlsplit
 import requests
 from langdetect import DetectorFactory, LangDetectException, detect_langs
 
+from .glossary import TranslationGlossary
+from .executables import find_executable
+
 
 class OllamaError(RuntimeError):
     pass
+
+
+def ollama_executable() -> str | None:
+    return find_executable("ollama")
 
 
 _NON_ITALIAN_OUTPUT = re.compile(
@@ -28,6 +34,46 @@ _NON_ITALIAN_OUTPUT = re.compile(
 )
 _ITALIAN_LANGUAGE_NAMES = {"it", "ita", "italian", "italiano", "italiana"}
 DetectorFactory.seed = 0
+
+_LIVE_MODEL_CANDIDATES = (
+    "translategemma:latest",
+    "translategemma:4b",
+    "qwen2.5:3b",
+    "qwen3:4b",
+)
+_LARGE_MODEL_MARKERS = ("8b", "9b", "12b", "14b", "27b", "32b", "70b")
+
+
+def resolve_live_model(
+    preferred: str,
+    *,
+    url: str = "http://127.0.0.1:11434/api/tags",
+) -> tuple[str, bool]:
+    """Prefer an installed small model for Rapido live translation.
+
+    Media/export keeps the user's selected model. Live audio is latency-bound,
+    so a large model is replaced only when a known smaller local model is
+    already installed. If Ollama is unavailable, the selected model is kept so
+    its normal readiness/error path remains authoritative.
+    """
+    selected = preferred.strip() or "translategemma:latest"
+    lowered = selected.casefold()
+    if not any(marker in lowered for marker in _LARGE_MODEL_MARKERS):
+        return selected, False
+    try:
+        response = requests.get(url, timeout=1.5)
+        response.raise_for_status()
+        models = {
+            str(item.get("name", "")).casefold()
+            for item in response.json().get("models", [])
+            if item.get("name")
+        }
+    except (requests.RequestException, TypeError, ValueError, AttributeError):
+        return selected, False
+    for candidate in _LIVE_MODEL_CANDIDATES:
+        if candidate.casefold() in models:
+            return candidate, True
+    return selected, False
 
 
 def _normalized_text(value: str) -> str:
@@ -101,6 +147,7 @@ class OllamaTranslator:
     model: str = "translategemma:latest"
     url: str = "http://127.0.0.1:11434/api/chat"
     timeout: float = 300.0
+    glossary: TranslationGlossary = field(default_factory=TranslationGlossary)
     _ready: bool = field(default=False, init=False, repr=False)
     _session: requests.Session = field(
         default_factory=requests.Session, init=False, repr=False
@@ -112,6 +159,21 @@ class OllamaTranslator:
     @property
     def last_failed_indices(self) -> tuple[int, ...]:
         return self._last_failed_indices
+
+    @property
+    def cache_key(self) -> str:
+        return f"{self.model}|glossary:{self.glossary.fingerprint}"
+
+    def _with_glossary(self, prompt: str, texts: list[str]) -> str:
+        terms = self.glossary.matched(texts)
+        if not terms:
+            return prompt
+        return (
+            prompt
+            + " Usa obbligatoriamente queste equivalenze terminologiche: "
+            + json.dumps(terms, ensure_ascii=False, sort_keys=True)
+            + "."
+        )
 
     def _base_url(self) -> str:
         parsed = urlsplit(self.url)
@@ -132,7 +194,7 @@ class OllamaTranslator:
         try:
             models = self._installed_models()
         except requests.RequestException:
-            executable = shutil.which("ollama")
+            executable = ollama_executable()
             if not executable:
                 raise OllamaError(
                     "Ollama non trovato. Installalo oppure aggiungilo al PATH."
@@ -172,8 +234,39 @@ class OllamaTranslator:
         self._ready = True
 
     def list_models(self) -> list[str]:
+        """Return models from an already-running Ollama service.
+
+        Discovery is intentionally passive: opening the GUI must not start a
+        background Ollama server or wait for its warm-up sequence.
+        """
+        try:
+            models = self._installed_models()
+        except requests.RequestException:
+            return []
+        return sorted(models, key=str.casefold)
+
+    def warmup(self) -> None:
+        """Load the model and exercise token generation before live audio."""
         self._ensure_ready()
-        return sorted(self._installed_models(), key=str.casefold)
+        response = self._session.post(
+            f"{self._base_url()}/api/generate",
+            json={
+                "model": self.model,
+                "prompt": (
+                    "/no_think\nTraduci in italiano senza omettere dettagli: "
+                    "The audio is ready."
+                ),
+                "stream": False,
+                "keep_alive": "30m",
+                "options": {
+                    "temperature": 0.0,
+                    "num_ctx": 1024,
+                    "num_predict": 16,
+                },
+            },
+            timeout=min(self.timeout, 60.0),
+        )
+        response.raise_for_status()
 
     def _chat(
         self,
@@ -181,6 +274,7 @@ class OllamaTranslator:
         *,
         num_predict: int,
         response_format: dict | None = None,
+        extra_options: dict | None = None,
     ) -> str:
         self._ensure_ready()
         payload = {
@@ -189,7 +283,11 @@ class OllamaTranslator:
             "think": False,
             "keep_alive": "30m",
             "messages": messages,
-            "options": {"temperature": 0.1, "num_predict": num_predict},
+            "options": {
+                "temperature": 0.1,
+                "num_predict": num_predict,
+                **(extra_options or {}),
+            },
         }
         if response_format is not None:
             payload["format"] = response_format
@@ -220,12 +318,12 @@ class OllamaTranslator:
         return content
 
     def translate(self, text: str, source_language: str = "auto") -> str:
-        system_prompt = (
+        system_prompt = self._with_glossary((
             "/no_think\nSei un motore di traduzione per doppiaggio. Traduci sempre il testo "
             "ricevuto in italiano naturale e parlato. Non ripetere il testo nella "
             "lingua originale. Mantieni significato, tono e brevità. Rispondi "
             "esclusivamente con la traduzione italiana, senza note né prefissi."
-        )
+        ), [text])
         return self._chat(
             [
                 {"role": "system", "content": system_prompt},
@@ -234,6 +332,33 @@ class OllamaTranslator:
             num_predict=256,
         )
 
+    def translate_realtime(
+        self, text: str, source_language: str = "auto"
+    ) -> str:
+        """Low-prefill translation path for short live speech segments."""
+        word_count = max(1, len(text.split()))
+        translated = self._chat(
+            [
+                {
+                    "role": "system",
+                    "content": self._with_glossary((
+                        "/no_think\nTraduci fedelmente in italiano parlato. "
+                        "Conserva soggetto, azione e dettagli importanti. "
+                        "Rispondi solo con una frase naturale, senza spiegazioni."
+                    ), [text]),
+                },
+                {"role": "user", "content": f"/no_think\n{text}"},
+            ],
+            num_predict=max(24, min(96, word_count * 3 + 12)),
+            extra_options={"temperature": 0.0, "num_ctx": 1024},
+        )
+        # Live audio must not block for a second model request: short phrases
+        # also produce false negatives in language detection. The compact
+        # prompt is deterministic, so accept its first non-empty result.
+        cleaned = _clean_translation(translated)
+        self._last_failed_indices = ()
+        return cleaned
+
     def _translate_strict(
         self,
         text: str,
@@ -241,12 +366,12 @@ class OllamaTranslator:
         previous: str | None = None,
         following: str | None = None,
     ) -> str:
-        system_prompt = (
+        system_prompt = self._with_glossary((
             "/no_think\nTraduci obbligatoriamente in italiano naturale. "
             "Il testo puo essere in inglese, spagnolo, francese, tedesco o gia "
             "parzialmente tradotto. Se non e italiano, non copiarlo: traducilo. "
             "Rispondi solo con la versione italiana finale, senza note."
-        )
+        ), [text])
         context = {
             "previous_context": previous or "",
             "text_to_translate": text,
@@ -314,11 +439,11 @@ class OllamaTranslator:
             },
             "required": ["translations"],
         }
-        system_prompt = (
+        system_prompt = self._with_glossary((
             "/no_think\nTraduci in italiano naturale e parlato ogni elemento "
             "dell'array JSON ricevuto. Mantieni esattamente lo stesso ordine e "
             "numero di elementi. Non unire, saltare o spiegare le frasi."
-        )
+        ), texts)
         try:
             content = self._chat(
                 [

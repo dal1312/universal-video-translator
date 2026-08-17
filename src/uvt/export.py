@@ -55,8 +55,9 @@ def export_italian_audio(
     cache: TranslationCache,
     source_language: str = "auto",
     rate: int = 185,
-    speech_engine: str = "windows",
+    speech_engine: str = "kokoro",
     voice: str = "default",
+    speaker_voices: tuple[str, ...] = (),
     on_progress: Callable[[int, int], None] | None = None,
     on_warning: Callable[[str], None] | None = None,
 ) -> Path:
@@ -70,7 +71,21 @@ def export_italian_audio(
 
     with tempfile.TemporaryDirectory(prefix="uvt-export-") as directory:
         temp = Path(directory)
-        engine = create_speech_engine(speech_engine, voice, rate)
+        engines: dict[str, object] = {}
+        speaker_order: dict[str, int] = {}
+
+        def engine_for(cue: Cue):
+            selected = voice
+            if cue.speaker:
+                index = speaker_order.setdefault(cue.speaker, len(speaker_order))
+                if index < len(speaker_voices) and speaker_voices[index].strip():
+                    selected = speaker_voices[index].strip()
+            if selected not in engines:
+                engines[selected] = create_speech_engine(
+                    speech_engine, selected, rate
+                )
+            return engines[selected]
+
         segments: list[Path] = []
         translated_by_text: dict[str, str] = {}
         missing: list[str] = []
@@ -82,7 +97,9 @@ def export_italian_audio(
                 continue
             try:
                 translated = cache.get(
-                    translator.model, source_language, cue.text
+                    getattr(translator, "cache_key", translator.model),
+                    source_language,
+                    cue.text,
                 )
             except Exception:
                 translated = None
@@ -124,7 +141,7 @@ def export_italian_audio(
                 cache.put_many(
                     [
                         (
-                            translator.model,
+                            getattr(translator, "cache_key", translator.model),
                             source_language,
                             text,
                             translated,
@@ -138,7 +155,7 @@ def export_italian_audio(
         for index, cue in enumerate(cues):
             translated = translated_by_text[cue.text]
             segment = temp / f"segment-{index:05d}.wav"
-            engine.save(translated, segment)
+            engine_for(cue).save(translated, segment)
             if not segment.exists():
                 raise TranscriptionError(
                     "La voce di sistema non ha generato il file audio."

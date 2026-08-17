@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -17,10 +19,70 @@ SOURCE_LANGUAGE_CODES = {
     "tedesco": "de",
 }
 
+YOUTUBE_FORMAT = "bv*[height<=720]+ba/b[height<=720]"
+DOWNLOAD_SOCKET_TIMEOUT = 20
+DOWNLOAD_RETRIES = 2
+
+
+def _is_browser_cookie_error(error: Exception) -> bool:
+    detail = str(error).casefold()
+    return "cookie" in detail and any(
+        marker in detail
+        for marker in (
+            "could not copy",
+            "failed to copy",
+            "failed to decrypt",
+            "cookie database",
+            "cookies database",
+        )
+    )
+
+
+def _is_youtube_auth_error(error: Exception) -> bool:
+    detail = str(error).casefold()
+    return any(
+        marker in detail
+        for marker in (
+            "sign in to confirm you're not a bot",
+            "sign in to confirm you’re not a bot",
+            "login required",
+            "authentication required",
+        )
+    )
+
+
+def _download_error(error: Exception, cookies_browser: str | None) -> DownloadError:
+    if _is_youtube_auth_error(error):
+        if cookies_browser:
+            return DownloadError(
+                "YouTube richiede un accesso autenticato. Apri YouTube nel "
+                f"browser selezionato ({cookies_browser}), accedi al tuo account, "
+                "chiudi completamente il browser e riprova."
+            )
+        return DownloadError(
+            "YouTube richiede un accesso autenticato. In Impostazioni avanzate "
+            "seleziona in Cookie YouTube il browser in cui hai effettuato "
+            "l'accesso, quindi riprova."
+        )
+    if _is_browser_cookie_error(error):
+        return DownloadError(
+            "I cookie del browser selezionato non sono accessibili. Chiudi "
+            "completamente il browser oppure seleziona un altro browser in "
+            "Impostazioni avanzate."
+        )
+    return DownloadError(f"Download non riuscito: {error}")
+
 
 def is_web_url(value: str) -> bool:
     parsed = urlparse(value.strip())
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def is_youtube_url(value: str) -> bool:
+    host = (urlparse(value.strip()).hostname or "").casefold()
+    return host in {"youtu.be", "youtube.com"} or host.endswith(
+        ".youtube.com"
+    )
 
 
 def subtitle_language_candidates(
@@ -64,9 +126,14 @@ def download_video(
     directory: str | Path,
     cookies_browser: str | None = None,
     source_language: str = "auto",
-) -> Path:
+    on_progress: Callable[[str], None] | None = None,
+) -> tuple[Path, bool]:
     if not is_web_url(url):
         raise DownloadError("URL non valido.")
+    if is_youtube_url(url) and shutil.which("deno") is None:
+        raise DownloadError(
+            "Deno non trovato. Installa Deno per scaricare video YouTube."
+        )
     try:
         import yt_dlp
     except ImportError as exc:
@@ -76,8 +143,33 @@ def download_video(
 
     target = Path(directory)
     target.mkdir(parents=True, exist_ok=True)
+    last_progress = -1
+
+    def report_progress(update: dict) -> None:
+        nonlocal last_progress
+        if on_progress is None:
+            return
+        try:
+            if update.get("status") == "finished":
+                on_progress("Download video completato, preparazione…")
+                return
+            if update.get("status") != "downloading":
+                return
+            total = update.get("total_bytes") or update.get(
+                "total_bytes_estimate"
+            )
+            downloaded = update.get("downloaded_bytes", 0)
+            if not total:
+                return
+            progress = min(100, int(downloaded * 100 / total))
+            if progress != last_progress:
+                last_progress = progress
+                on_progress(f"Download video: {progress}%")
+        except Exception:
+            return
+
     options = {
-        "format": "bv*+ba/b",
+        "format": YOUTUBE_FORMAT,
         "outtmpl": str(target / "%(id)s.%(ext)s"),
         "merge_output_format": "mp4",
         "noplaylist": True,
@@ -87,6 +179,11 @@ def download_video(
         "ffmpeg_location": str(Path(ensure_ffmpeg()).parent),
         "js_runtimes": {"deno": {}},
         "remote_components": {"ejs:github"},
+        "progress_hooks": [report_progress],
+        "socket_timeout": DOWNLOAD_SOCKET_TIMEOUT,
+        "retries": DOWNLOAD_RETRIES,
+        "extractor_retries": DOWNLOAD_RETRIES,
+        "fragment_retries": DOWNLOAD_RETRIES,
     }
     if cookies_browser:
         options["cookiesfrombrowser"] = (cookies_browser,)
@@ -119,7 +216,7 @@ def download_video(
                 )
             info = downloader.process_ie_result(info, download=True)
             prepared = Path(downloader.prepare_filename(info))
-            return [
+            candidates = [
                 path
                 for path in (
                     prepared,
@@ -129,25 +226,46 @@ def download_video(
                 )
                 if path.exists()
             ]
+            subtitle_found = any(
+                candidate.is_file()
+                and candidate.suffix in {".vtt", ".srt"}
+                and candidate.name.startswith(f"{prepared.stem}.")
+                for candidate in prepared.parent.glob(f"{prepared.stem}.*")
+            )
+            return candidates, subtitle_found
+
+    def extract_with_subtitle_fallback(download_options):
+        try:
+            return extract(download_options)
+        except Exception as exc:
+            detail = str(exc)
+            subtitle_failure = (
+                "video subtitles" in detail.casefold()
+                or "too many requests" in detail.casefold()
+                or "http error 429" in detail.casefold()
+            )
+            if not subtitle_failure:
+                raise
+            return extract(dict(download_options), include_subtitles=False)
 
     try:
-        candidates = extract(options)
+        candidates, subtitle_found = extract_with_subtitle_fallback(options)
     except Exception as exc:
-        detail = str(exc)
-        subtitle_failure = (
-            "video subtitles" in detail.casefold()
-            or "too many requests" in detail.casefold()
-            or "http error 429" in detail.casefold()
-        )
-        if not subtitle_failure:
-            raise DownloadError(f"Download non riuscito: {exc}") from exc
-        fallback = dict(options)
-        try:
-            candidates = extract(fallback, include_subtitles=False)
-        except Exception as fallback_exc:
-            raise DownloadError(
-                f"Download non riuscito: {fallback_exc}"
-            ) from fallback_exc
+        if cookies_browser and _is_browser_cookie_error(exc):
+            without_cookies = dict(options)
+            without_cookies.pop("cookiesfrombrowser", None)
+            try:
+                candidates, subtitle_found = extract_with_subtitle_fallback(
+                    without_cookies
+                )
+            except Exception as fallback_exc:
+                raise _download_error(
+                    fallback_exc, cookies_browser
+                ) from fallback_exc
+        else:
+            raise _download_error(exc, cookies_browser) from exc
     if not candidates:
         raise DownloadError("yt-dlp non ha prodotto un file video.")
-    return max(candidates, key=lambda path: path.stat().st_size)
+    return max(candidates, key=lambda path: path.stat().st_size), bool(
+        subtitle_found
+    )

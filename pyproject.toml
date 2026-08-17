@@ -4,21 +4,34 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "universal-video-translator"
-version = "0.1.0"
-description = "Local subtitle translator and Italian text-to-speech player"
+version = "0.2.1"
+description = "Local video translator with browser and real-time audio integration"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "langdetect>=1.0.9,<2",
   "requests>=2.31,<3",
-  "pyttsx3>=2.90,<3",
+  "Pillow>=10,<13",
+  "pystray>=0.19,<1",
+  "beautifulsoup4>=4.13,<5",
+  "pypdf>=5,<7",
+  "reportlab>=4.2,<5",
+  "imageio-ffmpeg>=0.6,<1",
+  "soundfile>=0.12,<1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9"]
+dev = [
+  "numpy>=1.26,<3",
+  "pytest>=8,<9",
+  "pytest-cov>=6,<8",
+  "ruff>=0.12,<0.13",
+]
 audio = ["faster-whisper>=1.1,<2"]
 youtube = ["yt-dlp"]
 live = ["faster-whisper>=1.1,<2", "numpy>=1.26,<3", "soundcard>=0.4,<1"]
+diarization = ["pyannote.audio>=3.3,<4", "torch>=2,<3"]
+translation = ["argostranslate>=1.11,<2"]
 kokoro = [
   "kokoro>=0.9.4,<1",
   "soundfile>=0.12,<1",
@@ -32,11 +45,15 @@ all = [
   "soundcard>=0.4,<1",
   "soundfile>=0.12,<1",
   "yt-dlp",
+  "argostranslate>=1.11,<2",
 ]
 
+[project.gui-scripts]
+universal-video-translator = "uvt.bootstrap:main"
+
 [project.scripts]
-universal-video-translator = "uvt.gui:main"
 uvt-cli = "uvt.app:main"
+uvt-native-host = "uvt.native_messaging:run_native_host"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -44,3 +61,12 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["uvt"]
+
+[tool.coverage.report]
+fail_under = 60
+show_missing = true
+skip_covered = true

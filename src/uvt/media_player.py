@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
-from .transcription import ensure_ffmpeg
+from .transcription import ensure_ffmpeg, find_media_tool
 
 
 class MediaPreview:
@@ -17,25 +15,11 @@ class MediaPreview:
 
     @staticmethod
     def _ffplay() -> str | None:
-        executable = shutil.which("ffplay")
-        if executable:
-            return executable
-        root = Path(sys.executable).resolve().parent
-        for candidate in (root / "ffplay.exe", root / "_internal" / "ffplay.exe"):
-            if candidate.is_file():
-                return str(candidate)
-        return None
+        return find_media_tool("ffplay")
 
     @staticmethod
     def _ffprobe() -> str | None:
-        executable = shutil.which("ffprobe")
-        if executable:
-            return executable
-        root = Path(sys.executable).resolve().parent
-        for candidate in (root / "ffprobe.exe", root / "_internal" / "ffprobe.exe"):
-            if candidate.is_file():
-                return str(candidate)
-        return None
+        return find_media_tool("ffprobe")
 
     @staticmethod
     def _has_media_streams(media: str | Path) -> tuple[bool, bool]:
@@ -141,12 +125,6 @@ class MediaPreview:
         if self.process.stdin is None:
             raise RuntimeError("Impossibile aprire lo stream del player.")
 
-        filter_parts = []
-        audio_map = "1:a:0"
-        if has_audio:
-            filter_parts = ["[0:a:0][1:a:0]amix=inputs=2:duration=longest:normalize=0[aout]"]
-            audio_map = "[aout]"
-
         ffmpeg_command = [
             ensure_ffmpeg(),
             "-v",
@@ -168,22 +146,14 @@ class MediaPreview:
         if has_video:
             ffmpeg_command.extend(["-map", "0:v:0"])
 
-        ffmpeg_command.extend(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k"])
-
-        if has_audio:
-            ffmpeg_command.extend([
-                "-filter_complex",
-                ";".join(filter_parts),
-                "-map",
-                audio_map,
-            ])
-        else:
-            ffmpeg_command.extend(["-map", "1:a:0"])
+        ffmpeg_command.extend(
+            ["-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k"]
+        )
+        if has_video:
+            ffmpeg_command.extend(["-af", "apad"])
 
         ffmpeg_command.extend(
             [
-                "-af",
-                "apad",
                 "-shortest",
                 "-max_interleave_delta",
                 "1000000",
@@ -233,16 +203,34 @@ class MediaPreview:
         process = self.process
         return process.wait() if process else 0
 
-    def stop(self) -> None:
+    @staticmethod
+    def _terminate(process: subprocess.Popen, timeout: float) -> bool:
+        if process.poll() is not None:
+            return True
+        try:
+            process.terminate()
+            process.wait(timeout=max(0.0, timeout))
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+                process.wait(timeout=max(0.0, timeout))
+            except (subprocess.TimeoutExpired, AttributeError, OSError):
+                return False
+        except (AttributeError, OSError):
+            return process.poll() is not None
+        return process.poll() is not None
+
+    def stop(self, timeout: float = 2.0) -> bool:
+        stopped = True
         if self.pipeline:
             if self.pipeline.stdin:
                 try:
                     self.pipeline.stdin.close()
                 except OSError:
                     pass
-            if self.pipeline.poll() is None:
-                self.pipeline.terminate()
+            stopped = self._terminate(self.pipeline, timeout) and stopped
         self.pipeline = None
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
+        if self.process:
+            stopped = self._terminate(self.process, timeout) and stopped
         self.process = None
+        return stopped

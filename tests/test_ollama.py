@@ -25,6 +25,29 @@ def test_missing_model_has_precise_error() -> None:
         translator._ensure_ready()
 
 
+def test_warmup_exercises_generation_with_live_options() -> None:
+    translator = OllamaTranslator(model="test:latest")
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    translator._session.post = Mock(return_value=response)
+
+    translator.warmup()
+
+    call = translator._session.post.call_args
+    assert call.args[0].endswith("/api/generate")
+    payload = call.kwargs["json"]
+    assert payload["model"] == "test:latest"
+    assert "senza omettere dettagli" in payload["prompt"]
+    assert payload["stream"] is False
+    assert payload["keep_alive"] == "30m"
+    assert payload["options"] == {
+        "temperature": 0.0,
+        "num_ctx": 1024,
+        "num_predict": 16,
+    }
+
+
 def test_translate_many_keeps_order() -> None:
     translator = OllamaTranslator()
     translator._ready = True
@@ -43,6 +66,37 @@ def test_translate_many_keeps_order() -> None:
         "Primo",
         "Secondo",
     ]
+    assert translator._session.post.call_count == 1
+
+
+def test_realtime_translation_uses_small_context_and_token_budget() -> None:
+    translator = OllamaTranslator()
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "message": {"content": "Questa prova funziona."}
+    }
+    translator._session.post = Mock(return_value=response)
+
+    assert translator.translate_realtime(
+        "This test works.", "inglese"
+    ) == "Questa prova funziona."
+    payload = translator._session.post.call_args.kwargs["json"]
+    assert payload["options"]["num_ctx"] == 1024
+    assert payload["options"]["num_predict"] <= 96
+    assert payload["options"]["temperature"] == 0.0
+
+
+def test_realtime_translation_never_retries_short_result() -> None:
+    translator = OllamaTranslator()
+    translator._ready = True
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"message": {"content": '"Va bene."'}}
+    translator._session.post = Mock(return_value=response)
+
+    assert translator.translate_realtime("All right.") == "Va bene."
     assert translator._session.post.call_count == 1
 
 

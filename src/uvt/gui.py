@@ -1,433 +1,301 @@
 from __future__ import annotations
 
+import json
+import os
+import sys
 import tkinter as tk
 import threading
-import tempfile
-from dataclasses import dataclass
+import time
+from collections.abc import Sequence
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from .cache import TranslationCache
-from .downloader import download_video, is_web_url
-from .export import export_italian_audio, mux_video_with_italian_audio
-from .live import LiveTranslator, capture_device_names
+from . import __version__
+from .audio_routing import (
+    AudioRoutingLeaseManager,
+    AudioRoutingError,
+)
+from .browser_protocol import (
+    BrowserProtocolError,
+    FOCUS_ACTION,
+    OVERLAY_ACTION,
+    STOP_ACTION,
+    SUPPORTED_BROWSERS,
+    claim_browser_request,
+    extension_directory,
+    parse_browser_request,
+    register_protocol,
+)
+from .browser_bridge import LocalBrowserBridge
+from .native_messaging import register_native_host
+from .desktop_integration import bridge_snapshot, browser_request, dispatch_hotkey
+from .controllers import (
+    BrowserAudioController,
+    DocumentTranslationController,
+    FileTranslationController,
+    LiveTranslationController,
+    MediaExportController,
+)
+from .diagnostics import log_exception, logger
+from .documents import (
+    SUPPORTED_DOCUMENT_EXTENSIONS,
+    default_document_destination,
+)
+from .error_messages import present_error
+from .hotkeys import GlobalHotkeys, change_system_volume
+from .glossary import TranslationGlossary
+from .live import (
+    LiveTranslator,
+    capture_device_names,
+    preferred_cable_output,
+)
 from .media_player import MediaPreview
+from .instance_ipc import InstanceEvent, InstanceIPCError, SingleInstanceBroker
 from .ollama import OllamaTranslator
 from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
-from .transcription import load_cues
-from .tts import KOKORO_VOICES, windows_voice_names
-
-
-@dataclass(frozen=True, slots=True)
-class RunSettings:
-    source: str
-    ollama_model: str
-    whisper_model: str
-    language: str
-    rate: int
-    speech_engine: str
-    voice: str
-    cookies_browser: str | None
+from .profiles import profile_by_key, profile_key_from_label
+from .live_session import build_live_translator
+from .readiness import (
+    SystemReadiness,
+    detect_system_readiness,
+    select_available_model,
+)
+from .runtime import RuntimeSupervisor
+from .session import SessionMode, TranslationSession
+from .settings import AppSettings, SettingsStore
+from .tts import (
+    KOKORO_VOICES,
+    compatible_speech_engine,
+    create_speech_engine,
+)
+from .translation import ARGOS_MODEL, ArgosTranslator
+from .tray import TrayController
+from .ui_layout import build_window
+from .ui_theme import apply_theme
+from .updates import AutomaticUpdater, UpdateResult, launch_pending_update
+from .workflow import PreparedPlayback, RunSettings, TranslationWorkflow
 
 
 class TranslatorWindow(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        initial_browser: str | None = None,
+        auto_start_overlay: bool = False,
+        *,
+        audio_router: AudioRoutingLeaseManager | None = None,
+        settings_store: SettingsStore | None = None,
+        instance_broker: SingleInstanceBroker | None = None,
+        browser_bridge: LocalBrowserBridge | None = None,
+        check_updates: bool = True,
+    ) -> None:
+        self._settings_store = settings_store or SettingsStore()
+        saved = self._settings_store.load()
         super().__init__()
         self.title("Universal Video Translator | Modern UI")
-        self.geometry("1240x780")
-        self.minsize(1040, 680)
+        try:
+            self.geometry(saved.window_geometry)
+        except tk.TclError:
+            self.geometry("1280x820")
+        self.minsize(1024, 680)
         self.player: SubtitlePlayer | None = None
         self.progressive: ProgressiveDubPlayer | None = None
         self.live: LiveTranslator | None = None
+        self._source_browser = (
+            initial_browser if initial_browser in SUPPORTED_BROWSERS else None
+        )
+        self._browser_overlay_pending = auto_start_overlay
+        self._browser_audio_routed: str | None = None
+        self._audio_router = audio_router or AudioRoutingLeaseManager()
+        self._instance_broker = instance_broker
+        self._browser_bridge = browser_bridge
+        self._browser_bridge_poll_job: str | None = None
+        self._hotkey_poll_job: str | None = None
+        self._instance_poll_job: str | None = None
+        self._settings_save_job: str | None = None
+        self._closing = False
+        self._background_notice_shown = False
+        self.session = TranslationSession()
+        self._file_run_id = 0
+        self._live_run_id = 0
+        self._document_run_id = 0
+        self._runtime = RuntimeSupervisor()
+        self._capture_devices_loaded = False
         self.preview = MediaPreview()
-        self.prepared_media: Path | None = None
-        self.preview_directory: tempfile.TemporaryDirectory | None = None
-        self.preview_has_italian_audio = False
-        self.download_directory: tempfile.TemporaryDirectory | None = None
+        self.workflow = TranslationWorkflow(
+            self.preview,
+            on_text=lambda text: self._call_in_ui(self._show_text, text),
+            on_status=lambda text: self._call_in_ui(self._set_status, text),
+            on_error=lambda error: self._call_in_ui(self._show_error, error),
+        )
+        self.file_controller = FileTranslationController(
+            self.session, self.workflow
+        )
+        self.export_controller = MediaExportController(self.workflow)
+        self.live_controller = LiveTranslationController(self.session)
+        self.document_controller = DocumentTranslationController(self.session)
+        self.browser_audio_controller = BrowserAudioController(
+            self._audio_router,
+            selected_browser=self._routing_browser,
+            on_status=lambda text: self.status_var.set(text),
+        )
         self.overlay = SubtitleOverlay(self)
+        self.overlay.apply_preferences(
+            geometry=saved.overlay_geometry,
+            alpha=saved.overlay_alpha,
+            font_size=saved.overlay_font_size,
+        )
 
         self.file_var = tk.StringVar()
-        self.model_var = tk.StringVar(value="translategemma:latest")
-        self.language_var = tk.StringVar(value="auto")
-        self.rate_var = tk.IntVar(value=185)
-        self.whisper_var = tk.StringVar(value="small")
-        self.speech_engine_var = tk.StringVar(value="kokoro")
-        self.voice_var = tk.StringVar(value="Sara (Kokoro, donna)")
-        self.show_text_var = tk.BooleanVar(value=True)
-        self.live_voice_var = tk.BooleanVar(value=False)
-        self.capture_device_var = tk.StringVar(
-            value="Audio di sistema (predefinito)"
+        self.document_var = tk.StringVar()
+        self.document_output_var = tk.StringVar()
+        self.source_mode_var = tk.StringVar(value="file")
+        self.model_var = tk.StringVar(value=saved.ollama_model)
+        self.language_var = tk.StringVar(value=saved.language)
+        self.rate_var = tk.IntVar(value=saved.rate)
+        self.whisper_var = tk.StringVar(value=saved.whisper_model)
+        self.speech_engine_var = tk.StringVar(
+            value=compatible_speech_engine(saved.speech_engine, saved.voice)
         )
-        self.cookies_var = tk.StringVar(value="firefox")
+        self.voice_var = tk.StringVar(value=saved.voice)
+        self.show_text_var = tk.BooleanVar(value=False)
+        self.live_voice_var = tk.BooleanVar(value=saved.live_voice)
+        self.capture_device_var = tk.StringVar(
+            value=saved.capture_device or "Audio di sistema (predefinito)"
+        )
+        self.routing_browser_var = tk.StringVar(value=saved.routing_browser)
+        self.cookies_var = tk.StringVar(value=saved.cookies_browser)
+        self.profile_var = tk.StringVar(
+            value=profile_by_key(saved.performance_profile).label
+        )
+        self.auto_ducking_var = tk.BooleanVar(value=saved.auto_ducking)
+        self.diarize_speakers_var = tk.BooleanVar(value=saved.diarize_speakers)
+        self.speaker_count_var = tk.IntVar(value=saved.speaker_count)
+        self.audio_track_var = tk.IntVar(value=saved.audio_track)
+        self.speaker_voice_1_var = tk.StringVar(value=saved.speaker_voice_1)
+        self.speaker_voice_2_var = tk.StringVar(value=saved.speaker_voice_2)
+        self.latency_var = tk.StringVar(value="Latenza: in attesa")
+        self.latency_detail_var = tk.StringVar(value="")
+        self._latest_latency: dict[str, float | int] = {}
+        self._update_status = "checking"
         self.status_var = tk.StringVar(value="Pronto")
-        self.dark_mode = True
+        self.system_status_var = tk.StringVar(value="Verifica configurazione…")
+        self._preflight_running = False
+        self.dark_mode = saved.dark_mode
         self.advanced_visible = False
+        self._compact_layout: bool | None = None
         self._configure_theme()
         self._build()
-        threading.Thread(target=self._load_models, daemon=True).start()
-        threading.Thread(
-            target=self._load_capture_devices, daemon=True
-        ).start()
-        self.protocol("WM_DELETE_WINDOW", self._close)
+        self._restore_saved_layout()
+        self._bind_settings_persistence()
+        if self._instance_broker is not None:
+            self._schedule_instance_poll()
+        if self._browser_bridge is not None:
+            self._schedule_browser_bridge_poll()
+        if auto_start_overlay:
+            self.iconify()
+            self.after_idle(self._show_browser_overlay, False)
+        self._start_worker(
+            self._load_capture_devices,
+            name="uvt-audio-discovery",
+        )
+        self._start_worker(
+            self._initialize_environment,
+            name="uvt-environment-discovery",
+        )
+        self.protocol("WM_DELETE_WINDOW", self._request_close)
+        self._tray = TrayController(
+            on_open=lambda: self.after(0, self._restore_from_background),
+            on_stop=lambda: self.after(0, self._stop_from_tray),
+            on_quit=lambda: self.after(0, self._close),
+        )
+        self._tray.start()
+        self._hotkeys = GlobalHotkeys()
+        if self._hotkeys.start():
+            self._schedule_hotkey_poll()
+        self._updater = AutomaticUpdater(__version__)
+        if check_updates:
+            self._start_worker(self._check_updates, name="uvt-update-check")
+        try:
+            self.after_idle(self._ensure_window_on_screen)
+        except (RecursionError, RuntimeError, tk.TclError):
+            # Tk may be intentionally absent in headless startup tests.
+            pass
+
+    def _start_worker(
+        self,
+        target,
+        *args,
+        name: str,
+    ) -> threading.Thread:
+        return self._runtime.start(target, *args, name=name)
+
+    def _ensure_window_on_screen(self) -> None:
+        if self.state() == "zoomed":
+            return
+        self.update_idletasks()
+        width = min(self.winfo_width(), self.winfo_screenwidth())
+        height = min(self.winfo_height(), self.winfo_screenheight())
+        x = max(0, min(self.winfo_x(), self.winfo_screenwidth() - width))
+        y = max(0, min(self.winfo_y(), self.winfo_screenheight() - height))
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _join_workers(self, timeout: float = 2.0) -> bool:
+        return self._runtime.join(timeout)
+
+    def _call_in_ui(self, callback, *args) -> None:
+        if self._closing:
+            return
+        try:
+            self.after(0, callback, *args)
+        except (RuntimeError, tk.TclError):
+            if not self._closing:
+                raise
+
+    def report_callback_exception(
+        self,
+        exception_type: type[BaseException],
+        error: BaseException,
+        _traceback,
+    ) -> None:
+        log_exception("tk", "callback_failed", error)
+        try:
+            messagebox.showerror(
+                "Errore interno",
+                "Operazione non completata. Consulta il log diagnostico in "
+                "%LOCALAPPDATA%\\UniversalVideoTranslator\\logs.",
+            )
+        except tk.TclError:
+            pass
 
     def _build(self) -> None:
-        root = ttk.Frame(self, padding=24)
-        root.pack(fill="both", expand=True)
-        root.columnconfigure(0, weight=1)
-        root.rowconfigure(1, weight=1)
+        build_window(self)
 
-        header = ttk.Frame(root)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 20))
-        header.columnconfigure(0, weight=1)
-        title_box = ttk.Frame(header)
-        title_box.grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            title_box,
-            text="LOCAL AI  /  PRIVATE BY DESIGN",
-            style="Eyebrow.TLabel",
-        ).pack(anchor="w", pady=(0, 4))
-        ttk.Label(
-            title_box,
-            text="Universal Video Translator",
-            style="Title.TLabel",
-        ).pack(anchor="w")
-        ttk.Label(
-            title_box,
-            text="Traduzione, doppiaggio e sottotitoli in tempo reale sul tuo PC",
-            style="Subtitle.TLabel",
-        ).pack(anchor="w", pady=(2, 0))
-        self.theme_button = ttk.Button(
-            header,
-            text="Tema chiaro",
-            command=self._toggle_theme,
-            style="Ghost.TButton",
-        )
-        self.theme_button.grid(row=0, column=1, padx=(12, 0))
+    def _on_workspace_resize(self, event: tk.Event) -> None:
+        if event.widget is self.workspace:
+            self._apply_responsive_layout(event.width)
 
-        body = ttk.Panedwindow(root, orient="horizontal")
-        body.grid(row=1, column=0, sticky="nsew")
-
-        settings = ttk.Frame(body, padding=20, style="Card.TFrame")
-        settings.configure(width=320)
-        settings.columnconfigure(0, weight=1)
-        body.add(settings, weight=0)
-        ttk.Label(
-            settings, text="CONFIGURAZIONE", style="CardSection.TLabel"
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            settings,
-            text="Imposta una volta, usa in entrambe le modalità.",
-            style="CardSubtitle.TLabel",
-            wraplength=270,
-        ).grid(row=1, column=0, sticky="w", pady=(4, 18))
-
-        ttk.Label(settings, text="Modello Ollama", style="Card.TLabel").grid(
-            row=2, column=0, sticky="w"
-        )
-        self.model_combo = ttk.Combobox(
-            settings,
-            textvariable=self.model_var,
-            values=("translategemma:latest", "qwen3:4b"),
-            state="readonly",
-        )
-        self.model_combo.grid(
-            row=3, column=0, sticky="ew", pady=(6, 14)
-        )
-
-        ttk.Label(settings, text="Lingua originale", style="Card.TLabel").grid(
-            row=4, column=0, sticky="w"
-        )
-        ttk.Combobox(
-            settings,
-            textvariable=self.language_var,
-            values=("auto", "inglese", "spagnolo", "francese", "tedesco"),
-            state="readonly",
-        ).grid(row=5, column=0, sticky="ew", pady=(6, 14))
-
-        ttk.Label(settings, text="Motore voce", style="Card.TLabel").grid(
-            row=6, column=0, sticky="w"
-        )
-        self.speech_combo = ttk.Combobox(
-            settings,
-            textvariable=self.speech_engine_var,
-            values=("kokoro", "windows"),
-            state="readonly",
-        )
-        self.speech_combo.grid(
-            row=7, column=0, sticky="ew", pady=(6, 14)
-        )
-        self.speech_combo.bind(
-            "<<ComboboxSelected>>", self._refresh_voices
-        )
-
-        ttk.Label(settings, text="Voce italiana", style="Card.TLabel").grid(
-            row=8, column=0, sticky="w"
-        )
-        self.voice_combo = ttk.Combobox(
-            settings,
-            textvariable=self.voice_var,
-            values=tuple(KOKORO_VOICES),
-            state="readonly",
-        )
-        self.voice_combo.grid(
-            row=9, column=0, sticky="ew", pady=(6, 14)
-        )
-
-        rate_header = ttk.Frame(settings, style="Card.TFrame")
-        rate_header.grid(row=10, column=0, sticky="ew")
-        rate_header.columnconfigure(0, weight=1)
-        ttk.Label(rate_header, text="Velocità voce", style="Card.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
-        ttk.Label(
-            rate_header, textvariable=self.rate_var, style="CardAccent.TLabel"
-        ).grid(row=0, column=1, sticky="e")
-        ttk.Scale(
-            settings,
-            from_=120,
-            to=260,
-            variable=self.rate_var,
-            orient="horizontal",
-        ).grid(row=11, column=0, sticky="ew", pady=(5, 16))
-
-        self.advanced_button = ttk.Button(
-            settings,
-            text="Mostra impostazioni avanzate",
-            command=self._toggle_advanced_settings,
-        )
-        self.advanced_button.grid(
-            row=12, column=0, sticky="ew", pady=(2, 0)
-        )
-        self.advanced_frame = ttk.Frame(
-            settings, style="Card.TFrame"
-        )
-        self.advanced_frame.grid(
-            row=13, column=0, sticky="ew", pady=(14, 0)
-        )
-        self.advanced_frame.columnconfigure(0, weight=1)
-        ttk.Label(
-            self.advanced_frame, text="Modello Whisper", style="Card.TLabel"
-        ).grid(
-            row=0, column=0, sticky="w"
-        )
-        ttk.Combobox(
-            self.advanced_frame,
-            textvariable=self.whisper_var,
-            values=("tiny", "base", "small", "medium"),
-            state="readonly",
-        ).grid(row=1, column=0, sticky="ew", pady=(5, 12))
-        ttk.Label(
-            self.advanced_frame, text="Cookie YouTube", style="Card.TLabel"
-        ).grid(
-            row=2, column=0, sticky="w"
-        )
-        ttk.Combobox(
-            self.advanced_frame,
-            textvariable=self.cookies_var,
-            values=("firefox", "chrome", "edge", "nessuno"),
-            state="readonly",
-        ).grid(row=3, column=0, sticky="ew", pady=(5, 0))
-        self.advanced_frame.grid_remove()
-
-        workspace = ttk.Frame(body, padding=(20, 0, 0, 0))
-        workspace.columnconfigure(0, weight=1)
-        workspace.rowconfigure(1, weight=1)
-        body.add(workspace, weight=1)
-
-        notebook = ttk.Notebook(workspace)
-        notebook.grid(row=0, column=0, sticky="ew")
-        video_tab = ttk.Frame(notebook, padding=22, style="Card.TFrame")
-        overlay_tab = ttk.Frame(
-            notebook, padding=22, style="Card.TFrame"
-        )
-        notebook.add(video_tab, text="  Video e file  ")
-        notebook.add(overlay_tab, text="  AI Overlay OS  ")
-
-        video_tab.columnconfigure(0, weight=1)
-        ttk.Label(
-            video_tab,
-            text="Traduci un video o un file di sottotitoli",
-            style="CardPanelTitle.TLabel",
-        ).grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Label(
-            video_tab,
-            text="Inserisci un collegamento YouTube oppure seleziona un file locale.",
-            style="CardSubtitle.TLabel",
-        ).grid(
-            row=1,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=(4, 18),
-        )
-        ttk.Label(
-            video_tab, text="SORGENTE", style="CardSection.TLabel"
-        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(0, 7))
-        self.file_entry = ttk.Entry(
-            video_tab, textvariable=self.file_var
-        )
-        self.file_entry.grid(
-            row=3, column=0, sticky="ew", padx=(0, 10), ipady=4
-        )
-        self.file_entry.bind("<Button-3>", self._show_text_menu)
-        ttk.Button(
-            video_tab, text="Sfoglia…", command=self._browse
-        ).grid(row=3, column=1, ipady=3)
-
-        video_actions = ttk.Frame(video_tab, style="Card.TFrame")
-        video_actions.grid(
-            row=4, column=0, columnspan=2, sticky="w", pady=(18, 0)
-        )
-        self.start_button = ttk.Button(
-            video_actions,
-            text="Avvia traduzione",
-            command=self._start,
-            style="Primary.TButton",
-        )
-        self.start_button.pack(side="left", padx=(0, 8))
-        self.pause_button = ttk.Button(
-            video_actions,
-            text="Pausa",
-            command=self._pause,
-            state="disabled",
-        )
-        self.pause_button.pack(side="left", padx=4)
-        self.stop_button = ttk.Button(
-            video_actions,
-            text="Stop",
-            command=self._stop,
-            state="disabled",
-        )
-        self.stop_button.pack(side="left", padx=4)
-
-        export_actions = ttk.Frame(video_tab, style="Card.TFrame")
-        export_actions.grid(
-            row=5, column=0, columnspan=2, sticky="w", pady=(12, 0)
-        )
-        self.export_button = ttk.Button(
-            export_actions,
-            text="Esporta audio",
-            command=self._export,
-        )
-        self.export_button.pack(side="left", padx=(0, 8))
-        self.video_button = ttk.Button(
-            export_actions,
-            text="Crea video italiano",
-            command=self._export_video,
-        )
-        self.video_button.pack(side="left")
-
-        overlay_tab.columnconfigure(0, weight=1)
-        ttk.Label(
-            overlay_tab,
-            text="Traduzione in tempo reale del PC",
-            style="CardPanelTitle.TLabel",
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            overlay_tab,
-            text="Cattura l’audio di browser e applicazioni e mostra la traduzione sopra ogni finestra.",
-            style="CardSubtitle.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(3, 14))
-        ttk.Label(
-            overlay_tab, text="INGRESSO AUDIO", style="CardSection.TLabel"
-        ).grid(
-            row=2, column=0, sticky="w"
-        )
-        self.capture_combo = ttk.Combobox(
-            overlay_tab,
-            textvariable=self.capture_device_var,
-            values=("Audio di sistema (predefinito)",),
-            state="readonly",
-        )
-        self.capture_combo.grid(
-            row=3, column=0, sticky="ew", pady=(7, 12), ipady=3
-        )
-        ttk.Checkbutton(
-            overlay_tab,
-            text="Riproduci anche la voce italiana",
-            variable=self.live_voice_var,
-            style="Card.TCheckbutton",
-        ).grid(row=4, column=0, sticky="w", pady=(0, 16))
-
-        overlay_actions = ttk.Frame(
-            overlay_tab, style="Card.TFrame"
-        )
-        overlay_actions.grid(row=5, column=0, sticky="w")
-        self.live_button = ttk.Button(
-            overlay_actions,
-            text="Avvia AI Overlay OS",
-            command=self._toggle_live,
-            style="Primary.TButton",
-        )
-        self.live_button.pack(side="left", padx=(0, 8))
-        self.overlay_button = ttk.Button(
-            overlay_actions,
-            text="Mostra overlay",
-            command=self._toggle_overlay,
-        )
-        self.overlay_button.pack(side="left")
-
-        output_card = ttk.Frame(
-            workspace, padding=20, style="Card.TFrame"
-        )
-        output_card.grid(
-            row=1, column=0, sticky="nsew", pady=(14, 0)
-        )
-        output_card.columnconfigure(0, weight=1)
-        output_card.rowconfigure(1, weight=1)
-        output_header = ttk.Frame(
-            output_card, style="Card.TFrame"
-        )
-        output_header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        output_header.columnconfigure(0, weight=1)
-        ttk.Label(
-            output_header,
-            text="TRASCRIZIONE ITALIANA",
-            style="CardSection.TLabel",
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Checkbutton(
-            output_header,
-            text="Mostra testo",
-            variable=self.show_text_var,
-            style="Card.TCheckbutton",
-        ).grid(row=0, column=1, sticky="e")
-        self.output = tk.Text(
-            output_card, wrap="word", height=12, state="disabled"
-        )
-        self.output.grid(row=1, column=0, sticky="nsew")
-        self._apply_text_colors()
-
-        status_bar = ttk.Frame(root, style="Status.TFrame")
-        status_bar.grid(row=2, column=0, sticky="ew", pady=(12, 0))
-        ttk.Label(
-            status_bar,
-            text="●",
-            style="StatusAccent.TLabel",
-        ).pack(side="left", padx=(10, 7), pady=7)
-        ttk.Label(
-            status_bar,
-            textvariable=self.status_var,
-            style="Status.TLabel",
-        ).pack(side="left", pady=7)
-
-        self.text_menu = tk.Menu(self, tearoff=False)
-        self.text_menu.add_command(
-            label="Taglia", command=lambda: self._text_action("<<Cut>>")
-        )
-        self.text_menu.add_command(
-            label="Copia", command=lambda: self._text_action("<<Copy>>")
-        )
-        self.text_menu.add_command(
-            label="Incolla", command=lambda: self._text_action("<<Paste>>")
-        )
-        self.text_menu.add_separator()
-        self.text_menu.add_command(
-            label="Seleziona tutto",
-            command=lambda: self._text_action("<<SelectAll>>"),
-        )
-        self._apply_text_colors()
+    def _apply_responsive_layout(self, available_width: int | None = None) -> None:
+        if not hasattr(self, "workspace") or not hasattr(self, "config_panel"):
+            return
+        width = available_width or self.workspace.winfo_width()
+        if width <= 1:
+            return
+        compact = width < 1050
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        # Mantieni una sola fonte di configurazione: il pannello Impostazioni.
+        # La colonna destra duplicava modello, voce e lingua e riduceva troppo
+        # lo spazio utile per media e Live.
+        self.config_panel.grid_remove()
+        self.content_shell.columnconfigure(0, weight=1)
+        self.content_shell.columnconfigure(1, weight=0, minsize=0)
+        if compact:
+            self.pipeline_panel.grid_remove()
+        else:
+            self.pipeline_panel.grid()
 
     def _toggle_advanced_settings(self) -> None:
         self.advanced_visible = not self.advanced_visible
@@ -439,8 +307,194 @@ class TranslatorWindow(tk.Tk):
         else:
             self.advanced_frame.grid_remove()
             self.advanced_button.configure(
-                text="Mostra impostazioni avanzate"
+                text="Impostazioni avanzate"
             )
+        self._schedule_settings_save()
+
+    def _toggle_settings_panel(self) -> None:
+        if self.settings_visible:
+            self.main_body.forget(self.settings_card)
+            self.settings_visible = False
+            return
+        self.main_body.add(self.settings_card, weight=1)
+        self.settings_visible = True
+
+    def _refresh_output_visibility(self) -> None:
+        output_card = getattr(self, "output_card", None)
+        if output_card is None:
+            return
+        workspace = output_card.master
+        if self.show_text_var.get():
+            output_card.grid()
+            workspace.rowconfigure(0, weight=1)
+            workspace.rowconfigure(2, weight=1)
+        else:
+            output_card.grid_remove()
+            workspace.rowconfigure(0, weight=1)
+            workspace.rowconfigure(2, weight=0)
+
+    def _test_voice(self) -> None:
+        settings = self._settings()
+        self.status_var.set("Prova voce in corso…")
+
+        def speak() -> None:
+            try:
+                engine = create_speech_engine(
+                    settings.speech_engine, settings.voice, settings.rate
+                )
+                engine.speak("Questa è una prova della voce italiana.")
+                self._call_in_ui(self.status_var.set, "Prova voce completata")
+            except Exception as exc:
+                self._call_in_ui(self._show_error, exc)
+
+        self._start_worker(speak, name="uvt-test-voice")
+
+    def _apply_profile(self, _event=None) -> None:
+        profile = profile_by_key(profile_key_from_label(self.profile_var.get()))
+        self.whisper_var.set(profile.whisper_model)
+        self.status_var.set(
+            f"Profilo {profile.label}: Whisper {profile.whisper_model}, "
+            f"segmenti fino a {profile.max_segment_seconds:.1f}s"
+        )
+
+    def _update_latency(self, metrics: dict[str, float | int]) -> None:
+        self._latest_latency.update(metrics)
+        current = float(self._latest_latency.get("current_ms", 0.0))
+        median_value = float(self._latest_latency.get("median_ms", 0.0))
+        self.latency_var.set(
+            f"Latenza: {current / 1000:.2f}s · mediana {median_value / 1000:.2f}s"
+        )
+        self.latency_detail_var.set(
+            "Acquisizione {capture:.0f}ms · Whisper {whisper:.0f}ms · "
+            "Traduzione {translation:.0f}ms · Code {queue:.0f}ms · "
+            "Voce {speed:.2f}× · Scarto {offset:.0f}ms".format(
+                capture=float(self._latest_latency.get("capture_ms", 0.0)),
+                whisper=float(self._latest_latency.get("transcribe_ms", 0.0)),
+                translation=float(self._latest_latency.get("translate_ms", 0.0)),
+                queue=float(
+                    self._latest_latency.get(
+                        "speech_queue_ms",
+                        self._latest_latency.get("queue_ms", 0.0),
+                    )
+                ),
+                speed=float(self._latest_latency.get("adaptive_speed", 1.0)),
+                offset=float(self._latest_latency.get("sync_offset_ms", 0.0)),
+            )
+        )
+
+    def _copy_diagnostics(self) -> None:
+        payload = {
+            "session": {
+                "mode": self.session.mode.value if self.session.mode else None,
+                "phase": self.session.phase.value,
+            },
+            "profile": profile_key_from_label(self.profile_var.get()),
+            "browser": self._routing_browser(),
+            "capture_device": self.capture_device_var.get(),
+            "latency": self._latest_latency,
+        }
+        self.clipboard_clear()
+        self.clipboard_append(json.dumps(payload, ensure_ascii=False, indent=2))
+        self.status_var.set("Diagnostica copiata negli appunti")
+
+    def _open_glossary(self) -> None:
+        try:
+            path = TranslationGlossary().ensure_template()
+            os.startfile(path)  # type: ignore[attr-defined]
+            self.status_var.set(
+                "Glossario aperto: le modifiche saranno applicate automaticamente"
+            )
+        except OSError as error:
+            messagebox.showerror("Glossario", str(error))
+
+    def _scroll_settings(self, event: tk.Event) -> None:
+        delta = int(-event.delta / 120)
+        if delta:
+            self.settings_canvas.yview_scroll(delta, "units")
+
+    def _restore_saved_layout(self) -> None:
+        if "theme_button" in self.__dict__:
+            self.theme_button.configure(
+                text="Tema chiaro" if self.dark_mode else "Tema scuro"
+            )
+        if "advanced_frame" not in self.__dict__:
+            return
+        if self.advanced_visible:
+            self.advanced_frame.grid()
+            self.advanced_button.configure(text="Nascondi impostazioni avanzate")
+
+    def _bind_settings_persistence(self) -> None:
+        variables = (
+            self.model_var,
+            self.language_var,
+            self.rate_var,
+            self.whisper_var,
+            self.speech_engine_var,
+            self.voice_var,
+            self.show_text_var,
+            self.live_voice_var,
+            self.capture_device_var,
+            self.cookies_var,
+            self.routing_browser_var,
+            self.profile_var,
+            self.auto_ducking_var,
+            self.diarize_speakers_var,
+            self.speaker_count_var,
+            self.audio_track_var,
+            self.speaker_voice_1_var,
+            self.speaker_voice_2_var,
+        )
+        for variable in variables:
+            if hasattr(variable, "trace_add"):
+                variable.trace_add(
+                    "write", lambda *_args: self._schedule_settings_save()
+                )
+
+    def _schedule_settings_save(self) -> None:
+        if self._closing:
+            return
+        if self._settings_save_job:
+            try:
+                self.after_cancel(self._settings_save_job)
+            except tk.TclError:
+                pass
+        self._settings_save_job = self.after(600, self._save_app_settings)
+
+    def _current_app_settings(self) -> AppSettings:
+        overlay_geometry, overlay_alpha, overlay_font_size = self.overlay.preferences()
+        return AppSettings(
+            ollama_model=self.model_var.get().strip() or "translategemma:latest",
+            language=self.language_var.get(),
+            rate=int(self.rate_var.get()),
+            whisper_model=self.whisper_var.get(),
+            speech_engine=self.speech_engine_var.get(),
+            voice=self.voice_var.get(),
+            show_text=bool(self.show_text_var.get()),
+            live_voice=bool(self.live_voice_var.get()),
+            capture_device=self.capture_device_var.get(),
+            cookies_browser=self.cookies_var.get(),
+            routing_browser=self.routing_browser_var.get(),
+            performance_profile=profile_key_from_label(self.profile_var.get()),
+            auto_ducking=bool(self.auto_ducking_var.get()),
+            diarize_speakers=bool(self.diarize_speakers_var.get()),
+            speaker_count=int(self.speaker_count_var.get()),
+            audio_track=int(self.audio_track_var.get()),
+            speaker_voice_1=self.speaker_voice_1_var.get().strip(),
+            speaker_voice_2=self.speaker_voice_2_var.get().strip(),
+            dark_mode=self.dark_mode,
+            advanced_visible=self.advanced_visible,
+            window_geometry=self.geometry(),
+            overlay_geometry=overlay_geometry,
+            overlay_alpha=overlay_alpha,
+            overlay_font_size=overlay_font_size,
+        )
+
+    def _save_app_settings(self) -> None:
+        self._settings_save_job = None
+        try:
+            self._settings_store.save(self._current_app_settings())
+        except Exception as error:
+            log_exception("settings", "save_failed", error)
 
     def _browse(self) -> None:
         path = filedialog.askopenfilename(
@@ -453,6 +507,266 @@ class TranslatorWindow(tk.Tk):
         if path:
             self.file_var.set(path)
 
+    def _browse_document(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleziona documento",
+            filetypes=(
+                ("Documenti supportati", "*.txt *.md *.html *.htm *.epub *.docx *.pdf"),
+                ("Tutti i file", "*.*"),
+            ),
+        )
+        if path:
+            self.document_var.set(path)
+            self.document_output_var.set(str(default_document_destination(path)))
+
+    def _browse_document_output(self) -> None:
+        source = Path(self.document_var.get())
+        path = filedialog.asksaveasfilename(
+            title="Salva documento tradotto",
+            initialfile=f"{source.stem or 'documento'}.italiano{source.suffix}",
+            defaultextension=source.suffix,
+        )
+        if path:
+            self.document_output_var.set(path)
+
+    def _select_source_mode(self, mode: str) -> None:
+        if mode not in {"file", "live", "document"}:
+            return
+        if self.session.busy:
+            active = self.session.mode.value if self.session.mode else "sconosciuta"
+            self.status_var.set(
+                f"Interrompi prima la sessione {active} attiva."
+            )
+            return
+        self.source_mode_var.set(mode)
+        self.video_tab.grid_remove()
+        self.overlay_tab.grid_remove()
+        document_tab = getattr(self, "document_tab", None)
+        if document_tab is not None:
+            document_tab.grid_remove()
+        selected = {
+            "file": self.video_tab,
+            "live": self.overlay_tab,
+            "document": document_tab,
+        }[mode]
+        if selected is not None:
+            selected.grid()
+        self.file_mode_button.configure(
+            style="ModeSelected.TButton" if mode == "file" else "Mode.TButton"
+        )
+        self.live_mode_button.configure(
+            style="ModeSelected.TButton" if mode == "live" else "Mode.TButton"
+        )
+        document_button = getattr(self, "document_mode_button", None)
+        if document_button is not None:
+            document_button.configure(
+                style=(
+                    "ModeSelected.TButton"
+                    if mode == "document"
+                    else "Mode.TButton"
+                )
+            )
+
+    def _show_browser_overlay(self, focus_window: bool = True) -> None:
+        self._select_source_mode("live")
+        if focus_window:
+            self.deiconify()
+            self.lift()
+            try:
+                self.focus_force()
+            except tk.TclError:
+                pass
+        self.status_var.set(
+            "Richiesta browser ricevuta: preparazione AI Overlay OS..."
+        )
+
+    def _schedule_instance_poll(self) -> None:
+        if self._closing or self._instance_broker is None:
+            return
+        self._instance_poll_job = self.after(75, self._poll_instance_events)
+
+    def _poll_instance_events(self) -> None:
+        self._instance_poll_job = None
+        broker = self._instance_broker
+        if self._closing or broker is None:
+            return
+        for event in broker.drain_events():
+            self._handle_instance_event(event)
+        self._schedule_instance_poll()
+
+    def _schedule_browser_bridge_poll(self) -> None:
+        if self._closing or self._browser_bridge is None:
+            return
+        self._browser_bridge_poll_job = self.after(
+            150, self._poll_browser_bridge
+        )
+
+    def _poll_browser_bridge(self) -> None:
+        self._browser_bridge_poll_job = None
+        bridge = self._browser_bridge
+        if self._closing or bridge is None:
+            return
+        bridge.update_state(
+            bridge_snapshot(
+                mode=self.session.mode.value if self.session.mode else None,
+                phase=self.session.phase.value,
+                running=self.session.busy,
+                profile=profile_key_from_label(self.profile_var.get()),
+                browser=self._routing_browser(),
+                capture_device=self.capture_device_var.get(),
+                voice=bool(self.live_voice_var.get()),
+                auto_ducking=bool(self.auto_ducking_var.get()),
+                latency=self._latest_latency,
+                app_version=__version__,
+                update_status=self._update_status,
+            )
+        )
+        for command in bridge.drain_commands():
+            if command.action == "quit":
+                self._close()
+                return
+            request = browser_request(command)
+            if request is not None:
+                self._handle_browser_request(request)
+        for subtitle in bridge.drain_subtitles():
+            if self.live is not None and self.live.running:
+                self.live.submit_subtitle(subtitle.text)
+        self._schedule_browser_bridge_poll()
+
+    def _schedule_hotkey_poll(self) -> None:
+        if self._closing:
+            return
+        self._hotkey_poll_job = self.after(120, self._poll_hotkeys)
+
+    def _poll_hotkeys(self) -> None:
+        self._hotkey_poll_job = None
+        if self._closing:
+            return
+        hotkeys = getattr(self, "_hotkeys", None)
+        actions = {
+            "toggle": self._toggle_live,
+            "stop": self._stop_from_tray,
+            "overlay": self._toggle_overlay,
+            "volume_up": lambda: change_system_volume(1),
+            "volume_down": lambda: change_system_volume(-1),
+        }
+        for command in hotkeys.drain() if hotkeys is not None else ():
+            dispatch_hotkey(command, actions)
+        self._schedule_hotkey_poll()
+
+    def _check_updates(self) -> None:
+        try:
+            result = self._updater.check_and_stage()
+        except Exception as error:
+            logger("updates").warning("event=update_check_failed error=%s", error)
+            result = UpdateResult(
+                "error", message="Controllo aggiornamenti fallito"
+            )
+        self._call_in_ui(self._set_update_result, result)
+
+    def _set_update_result(self, result: UpdateResult) -> None:
+        self._update_status = result.status
+        if result.status in {"available", "staged"}:
+            self.status_var.set(result.message)
+            tray = getattr(self, "_tray", None)
+            if tray is not None:
+                tray.notify(result.message)
+
+    def _handle_instance_event(self, event: InstanceEvent) -> None:
+        if event.command == "focus":
+            self.deiconify()
+            self.lift()
+            try:
+                self.focus_force()
+            except tk.TclError:
+                pass
+            return
+        request = event.request
+        if event.command not in {"overlay", "browser"} or request is None:
+            return
+        self._handle_browser_request(request)
+
+    def _handle_browser_request(self, request) -> None:
+        self._source_browser = request.browser
+        # Il browser sorgente determina il routing audio, non il consenso a
+        # leggere i cookie. L'utente abilita i cookie soltanto dalle impostazioni.
+        browser = str(request.browser).casefold()
+        if browser in SUPPORTED_BROWSERS:
+            self.routing_browser_var.set(browser)
+        requested_profile = getattr(request, "profile", None)
+        if requested_profile:
+            profile = profile_by_key(requested_profile)
+            self.profile_var.set(profile.label)
+            self._apply_profile()
+        if request.action == FOCUS_ACTION:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+            self.status_var.set("UVT portato in primo piano dal browser")
+            return
+        if request.action == STOP_ACTION:
+            if TranslatorWindow._session_active(self, SessionMode.FILE):
+                self._stop()
+            if TranslatorWindow._session_active(self, SessionMode.LIVE):
+                self._stop_live_mode()
+            self.status_var.set("Sessione interrotta dal browser")
+            return
+        if request.action != OVERLAY_ACTION:
+            return
+        self._show_browser_overlay(False)
+        if self.live and self.live.running:
+            self.status_var.set("AI Overlay OS è già attivo.")
+            return
+        self._browser_overlay_pending = True
+        if self._capture_devices_loaded:
+            self._browser_overlay_pending = False
+            if "cable output" in self.capture_device_var.get().lower():
+                self.after_idle(self._start_browser_overlay)
+            else:
+                self.status_var.set(
+                    "Avvio automatico annullato: VB-Cable non rilevato."
+                )
+
+    def _start_browser_overlay(self) -> None:
+        self._show_browser_overlay(False)
+        if self.live and self.live.running:
+            return
+        try:
+            self._toggle_live(require_browser_routing=True)
+        except Exception as error:
+            self._show_error(error)
+
+    def _connect_browser(self) -> None:
+        try:
+            register_protocol()
+            register_native_host()
+            extension = extension_directory()
+            if not extension.is_dir():
+                raise BrowserProtocolError(
+                    "Cartella dell'estensione browser non trovata."
+                )
+            manifest = extension / "manifest.json"
+            if not manifest.is_file():
+                raise BrowserProtocolError(
+                    f"Manifest Firefox non trovato: {manifest}"
+                )
+            os.startfile(extension)
+        except (BrowserProtocolError, OSError) as error:
+            self._show_error(error)
+            return
+        messagebox.showinfo(
+            "Collegamento browser",
+            "Protocollo UVT e canale Native Messaging registrati per questo utente.\n\n"
+            "Chrome/Edge: apri la pagina delle estensioni e scegli "
+            "'Carica estensione non pacchettizzata' usando la cartella appena aperta.\n"
+            f"Firefox: apri about:debugging#/runtime/this-firefox, scegli "
+            "'Carica componente aggiuntivo temporaneo' e seleziona il file "
+            f"manifest.json qui: {manifest}\n\n"
+            "Quando premi il pulsante, l'estensione non legge né invia il link: "
+            "apre direttamente AI Overlay OS, configura l'audio del browser e "
+            "avvia la traduzione in tempo reale.",
+        )
+
     def _show_text_menu(self, event: tk.Event) -> None:
         self.file_entry.focus_set()
         self.text_menu.tk_popup(event.x_root, event.y_root)
@@ -460,66 +774,147 @@ class TranslatorWindow(tk.Tk):
     def _text_action(self, action: str) -> None:
         self.file_entry.event_generate(action)
 
-    def _start(self) -> None:
-        self.start_button.configure(state="disabled")
-        self.status_var.set("Preparazione/trascrizione…")
-        threading.Thread(
-            target=self._prepare, args=(self._settings(),), daemon=True
-        ).start()
+    def _start_document_translation(self) -> None:
+        source = Path(self.document_var.get().strip())
+        destination = Path(self.document_output_var.get().strip())
+        if not source.is_file() or source.suffix.casefold() not in SUPPORTED_DOCUMENT_EXTENSIONS:
+            messagebox.showerror("Documenti", "Seleziona un documento supportato.")
+            return
+        if destination.suffix.casefold() != source.suffix.casefold():
+            messagebox.showerror(
+                "Documenti", "La destinazione deve mantenere lo stesso formato."
+            )
+            return
+        if self.session.busy:
+            messagebox.showerror("Documenti", "Interrompi prima la sessione attiva.")
+            return
+        self._select_source_mode("document")
+        run_id = self.document_controller.begin()
+        self._document_run_id = run_id
+        self.document_start_button.configure(state="disabled")
+        self.document_stop_button.configure(state="normal")
+        self.status_var.set("Preparazione documento…")
+        self._start_worker(
+            self._translate_document,
+            source,
+            destination,
+            self.language_var.get(),
+            self.model_var.get(),
+            run_id,
+            name="uvt-document-translation",
+        )
 
-    def _prepare(self, settings: RunSettings) -> None:
+    def _translate_document(
+        self,
+        source: Path,
+        destination: Path,
+        language: str,
+        model: str,
+        run_id: int,
+    ) -> None:
         try:
-            path = self._resolve_input(
-                settings.source, settings.cookies_browser, settings.language
+            result = self.document_controller.translate(
+                source,
+                destination,
+                language=language,
+                model=model,
+                run_id=run_id,
+                on_progress=lambda done, total: self._call_in_ui(
+                    self.status_var.set,
+                    f"Documento: {done}/{total} blocchi tradotti",
+                ),
             )
-            is_media = path.suffix.lower() not in {".srt", ".vtt"}
-            cues = load_cues(path, whisper_model=settings.whisper_model)
-            if not cues:
-                raise ValueError("Nessuna battuta rilevata.")
-            if is_media:
-                if self.progressive:
-                    self.progressive.stop()
-                self.progressive = ProgressiveDubPlayer(
-                    media=path,
-                    cues=cues,
-                    preview=self.preview,
-                    translator=OllamaTranslator(model=settings.ollama_model),
-                    cache=TranslationCache(),
-                    source_language=settings.language,
-                    rate=settings.rate,
-                    speech_engine=settings.speech_engine,
-                    voice=settings.voice,
-                    on_text=lambda text: self.after(0, self._show_text, text),
-                    on_status=lambda text: self.after(0, self._set_status, text),
-                    on_error=lambda error: self.after(0, self._show_error, error),
-                )
-                self.progressive.prepare()
-                self.player = None
-                self.after(0, self._begin_playback)
+        except Exception as error:
+            if run_id == self._document_run_id:
+                self._call_in_ui(self._finish_document_translation, error)
+            return
+        if run_id == self._document_run_id:
+            self._call_in_ui(self._finish_document_translation, None, result)
+
+    def _finish_document_translation(
+        self, error: Exception | None, result: Path | None = None
+    ) -> None:
+        self.document_controller.finish()
+        self._document_run_id = self.session.run_id
+        self.document_start_button.configure(state="normal")
+        self.document_stop_button.configure(state="disabled")
+        self._sync_mode_controls()
+        if error is not None:
+            if self.document_controller.cancelled:
+                self.status_var.set("Traduzione documento interrotta")
+            else:
+                self._show_error(error)
+                self.status_var.set("Errore traduzione documento")
+            return
+        self.status_var.set(f"Documento tradotto: {result}")
+
+    def _stop_document_translation(self) -> None:
+        if self.session.mode is not SessionMode.DOCUMENT or not self.session.busy:
+            return
+        self.document_controller.request_stop()
+        self.document_stop_button.configure(state="disabled")
+        self.status_var.set("Arresto traduzione documento…")
+
+    def _start(self) -> None:
+        settings = self._settings()
+        if not settings.source:
+            self.status_var.set("Sorgente richiesta")
+            messagebox.showerror(
+                "Errore",
+                "Seleziona un video, audio o file di sottotitoli.",
+            )
+            return
+        if not self._stop_live_mode():
+            messagebox.showerror(
+                "Errore",
+                "AI Overlay OS non si è arrestato. Riprova prima di avviare il file.",
+            )
+            return
+        self._select_source_mode("file")
+        run_id = self.file_controller.begin()
+        self._file_run_id = run_id
+        self.start_button.configure(state="disabled")
+        self.pause_button.configure(state="disabled", text="Pausa")
+        self.stop_button.configure(state="normal")
+        self.live_button.configure(state="disabled")
+        self.status_var.set("Preparazione/trascrizione…")
+        self._start_worker(
+            self._prepare,
+            settings,
+            run_id,
+            name="uvt-prepare",
+        )
+
+    def _prepare(self, settings: RunSettings, run_id: int) -> None:
+        try:
+            prepared = self.file_controller.prepare(settings, run_id)
+            if prepared is None:
                 return
-
-            self.progressive = None
-            self.prepared_media = None
-            self.preview_has_italian_audio = False
-            self.player = SubtitlePlayer(
-                cues=cues,
-                translator=OllamaTranslator(model=settings.ollama_model),
-                cache=TranslationCache(),
-                source_language=settings.language,
-                rate=settings.rate,
-                speech_engine=settings.speech_engine,
-                voice=settings.voice,
-                on_text=lambda text: self.after(0, self._show_text, text),
-                on_status=lambda text: self.after(0, self._set_status, text),
-                on_error=lambda error: self.after(0, self._show_error, error),
-            )
-            self.player.prepare()
-            self.after(0, self._begin_playback)
+            if (
+                self._closing
+                or run_id != self._file_run_id
+                or not self.session.accepts(SessionMode.FILE, run_id)
+            ):
+                self.file_controller.discard(prepared)
+                return
+            self._call_in_ui(self._begin_playback, prepared, run_id)
         except Exception as exc:
-            self.after(0, self._show_error, exc)
-            self.after(0, self._reset_controls)
+            if self._closing or run_id != self._file_run_id:
+                return
+            self._call_in_ui(self._show_error, exc)
+            self._call_in_ui(self._reset_controls)
 
-    def _begin_playback(self) -> None:
+    def _begin_playback(
+        self, prepared: PreparedPlayback, run_id: int
+    ) -> None:
+        if run_id != self._file_run_id:
+            self.file_controller.discard(prepared)
+            return
+        if not self.file_controller.activate(run_id):
+            self.file_controller.discard(prepared)
+            return
+        self.progressive = prepared.progressive
+        self.player = prepared.player
         self.pause_button.configure(state="normal")
         self.stop_button.configure(state="normal")
         if self.progressive:
@@ -530,34 +925,25 @@ class TranslatorWindow(tk.Tk):
                 self._reset_controls()
             return
         if self.player:
-            if self.prepared_media:
-                try:
-                    self.preview.open(
-                        self.prepared_media,
-                        mute_audio=not self.preview_has_italian_audio,
-                    )
-                    self.after(700, self.player.start)
-                    return
-                except Exception as exc:
-                    self._show_error(exc)
             self.player.start()
 
     def _pause(self) -> None:
         if self.progressive:
             paused = self.progressive.toggle_pause()
             self.pause_button.configure(text="Riprendi" if paused else "Pausa")
+            self.session.set_paused(paused)
             return
         if self.player:
             paused = self.player.toggle_pause()
             self.pause_button.configure(text="Riprendi" if paused else "Pausa")
+            self.session.set_paused(paused)
 
     def _stop(self) -> None:
-        if self.progressive:
-            self.progressive.stop()
-            self.progressive = None
-        if self.player:
-            self.player.stop()
-        self.preview.stop()
+        progressive = self.progressive
+        player = self.player
+        self.progressive = None
+        self.player = None
+        self.file_controller.stop(player, progressive, self.preview)
         self._reset_controls()
 
     def _export(self) -> None:
@@ -570,44 +956,32 @@ class TranslatorWindow(tk.Tk):
             return
         self.export_button.configure(state="disabled")
         self.status_var.set("Preparazione esportazione…")
-        threading.Thread(
-            target=self._run_export,
-            args=(destination, self._settings()),
-            daemon=True,
-        ).start()
+        self._start_worker(
+            self._run_export,
+            destination,
+            self._settings(),
+            name="uvt-export-audio",
+        )
 
     def _run_export(self, destination: str, settings: RunSettings) -> None:
         try:
-            cues = load_cues(
-                self._resolve_input(
-                    settings.source, settings.cookies_browser, settings.language
-                ),
-                whisper_model=settings.whisper_model,
-            )
-            output = export_italian_audio(
-                cues,
+            output = self.export_controller.export_audio(
                 destination,
-                translator=OllamaTranslator(model=settings.ollama_model),
-                cache=TranslationCache(),
-                source_language=settings.language,
-                rate=settings.rate,
-                speech_engine=settings.speech_engine,
-                voice=settings.voice,
-                on_progress=lambda current, total: self.after(
-                    0, self.status_var.set, f"Esportazione {current}/{total}"
+                settings,
+                on_progress=lambda current, total: self._call_in_ui(
+                    self.status_var.set, f"Esportazione {current}/{total}"
                 ),
-                on_warning=lambda message: self.after(
-                    0,
+                on_warning=lambda message: self._call_in_ui(
                     messagebox.showwarning,
                     "Traduzione incompleta",
                     message,
                 ),
             )
-            self.after(0, self._export_complete, output)
+            self._call_in_ui(self._export_complete, output)
         except Exception as exc:
-            self.after(0, self._show_error, exc)
+            self._call_in_ui(self._show_error, exc)
         finally:
-            self.after(0, self.export_button.configure, {"state": "normal"})
+            self._call_in_ui(self.export_button.configure, {"state": "normal"})
 
     def _export_complete(self, output: Path) -> None:
         self.status_var.set("Esportazione completata")
@@ -627,69 +1001,38 @@ class TranslatorWindow(tk.Tk):
         if not destination:
             return
         self.video_button.configure(state="disabled")
-        threading.Thread(
-            target=self._run_video_export,
-            args=(Path(destination), settings),
-            daemon=True,
-        ).start()
+        self._start_worker(
+            self._run_video_export,
+            Path(destination),
+            settings,
+            name="uvt-export-video",
+        )
 
     def _run_video_export(
         self, destination: Path, settings: RunSettings
     ) -> None:
         try:
-            source = self._resolve_input(
-                settings.source, settings.cookies_browser, settings.language
+            output = self.export_controller.export_video(
+                destination,
+                settings,
+                on_progress=lambda current, total: self._call_in_ui(
+                    self.status_var.set, f"Creazione video {current}/{total}"
+                ),
+                on_warning=lambda message: self._call_in_ui(
+                    messagebox.showwarning,
+                    "Traduzione incompleta",
+                    message,
+                ),
             )
-            with tempfile.TemporaryDirectory(prefix="uvt-video-") as directory:
-                audio = Path(directory) / "italiano.wav"
-                cues = load_cues(source, whisper_model=settings.whisper_model)
-                export_italian_audio(
-                    cues,
-                    audio,
-                    translator=OllamaTranslator(model=settings.ollama_model),
-                    cache=TranslationCache(),
-                    source_language=settings.language,
-                    rate=settings.rate,
-                    speech_engine=settings.speech_engine,
-                    voice=settings.voice,
-                    on_progress=lambda current, total: self.after(
-                        0, self.status_var.set, f"Creazione video {current}/{total}"
-                    ),
-                    on_warning=lambda message: self.after(
-                        0,
-                        messagebox.showwarning,
-                        "Traduzione incompleta",
-                        message,
-                    ),
-                )
-                mux_video_with_italian_audio(source, audio, destination)
-            self.after(0, self._video_complete, destination)
+            self._call_in_ui(self._video_complete, output)
         except Exception as exc:
-            self.after(0, self._show_error, exc)
+            self._call_in_ui(self._show_error, exc)
         finally:
-            self.after(0, self.video_button.configure, {"state": "normal"})
+            self._call_in_ui(self.video_button.configure, {"state": "normal"})
 
     def _video_complete(self, output: Path) -> None:
         self.status_var.set("Video italiano completato")
         messagebox.showinfo("Video creato", f"File salvato:\n{output}")
-
-    def _resolve_input(
-        self,
-        value: str,
-        cookies_browser: str | None = None,
-        source_language: str = "auto",
-    ) -> Path:
-        if not is_web_url(value):
-            return Path(value)
-        if self.download_directory is None:
-            self.download_directory = tempfile.TemporaryDirectory(prefix="uvt-url-")
-        self.after(0, self.status_var.set, "Download video…")
-        return download_video(
-            value,
-            self.download_directory.name,
-            cookies_browser=cookies_browser,
-            source_language=source_language,
-        )
 
     def _toggle_overlay(self) -> None:
         visible = self.overlay.toggle()
@@ -703,200 +1046,61 @@ class TranslatorWindow(tk.Tk):
         self._apply_theme()
 
     def _apply_theme(self) -> None:
-        if self.dark_mode:
-            bg, panel, fg, field, accent, border = (
-                "#0b0f14",
-                "#141a23",
-                "#f4f7fb",
-                "#1c2430",
-                "#4f8cff",
-                "#283241",
+        self._theme_palette = apply_theme(
+            self,
+            self.style,
+            dark=self.dark_mode,
+            settings_canvas=getattr(self, "settings_canvas", None),
+        )
+
+    def _refresh_status_indicator(self) -> None:
+        if "status_dot" not in self.__dict__:
+            return
+        status = self.status_var.get().casefold()
+        if any(
+            word in status
+            for word in ("errore", "non riuscito", "fallita", "annullato")
+        ):
+            style = "StatusError.TLabel"
+        elif any(
+            word in status
+            for word in (
+                "preparazione",
+                "caricamento",
+                "download",
+                "esportazione",
+                "creazione",
+                "riproduzione",
+                "ascolto",
             )
+        ):
+            style = "StatusBusy.TLabel"
         else:
-            bg, panel, fg, field, accent, border = (
-                "#eef2f7",
-                "#ffffff",
-                "#172033",
-                "#f7f9fc",
-                "#346fe8",
-                "#dbe2ea",
-            )
-        muted = "#93a0b4" if self.dark_mode else "#637083"
-        self.configure(bg=bg)
-        self.style.configure(
-            ".", background=bg, foreground=fg, font=("Segoe UI", 10)
-        )
-        self.style.configure("TFrame", background=bg)
-        self.style.configure(
-            "Card.TFrame", background=panel, bordercolor=border, relief="flat"
-        )
-        self.style.configure(
-            "Status.TFrame", background=panel, bordercolor=border, relief="flat"
-        )
-        self.style.configure("TLabel", background=bg, foreground=fg)
-        self.style.configure("Card.TLabel", background=panel, foreground=fg)
-        self.style.configure(
-            "Eyebrow.TLabel",
-            background=bg,
-            foreground=accent,
-            font=("Segoe UI Semibold", 9),
-        )
-        self.style.configure(
-            "Title.TLabel",
-            background=bg,
-            foreground=fg,
-            font=("Segoe UI Semibold", 24),
-        )
-        self.style.configure(
-            "PanelTitle.TLabel",
-            background=bg,
-            foreground=fg,
-            font=("Segoe UI Semibold", 15),
-        )
-        self.style.configure(
-            "CardPanelTitle.TLabel",
-            background=panel,
-            foreground=fg,
-            font=("Segoe UI Semibold", 15),
-        )
-        self.style.configure(
-            "Section.TLabel",
-            background=bg,
-            foreground=accent,
-            font=("Segoe UI Semibold", 9),
-        )
-        self.style.configure(
-            "CardSection.TLabel",
-            background=panel,
-            foreground=accent,
-            font=("Segoe UI Semibold", 9),
-        )
-        self.style.configure(
-            "Subtitle.TLabel",
-            background=bg,
-            foreground=muted,
-            font=("Segoe UI", 10),
-        )
-        self.style.configure(
-            "CardSubtitle.TLabel",
-            background=panel,
-            foreground=muted,
-            font=("Segoe UI", 10),
-        )
-        self.style.configure(
-            "Accent.TLabel",
-            background=bg,
-            foreground=accent,
-            font=("Segoe UI", 10, "bold"),
-        )
-        self.style.configure(
-            "CardAccent.TLabel",
-            background=panel,
-            foreground=accent,
-            font=("Segoe UI Semibold", 10),
-        )
-        self.style.configure(
-            "Status.TLabel", background=panel, foreground=fg
-        )
-        self.style.configure(
-            "StatusAccent.TLabel",
-            background=panel,
-            foreground="#22c55e",
-        )
-        self.style.configure(
-            "TEntry",
-            fieldbackground=field,
-            foreground=fg,
-            insertcolor=fg,
-            bordercolor=border,
-            lightcolor=border,
-            darkcolor=border,
-            padding=(10, 8),
-        )
-        self.style.configure(
-            "TCombobox",
-            fieldbackground=field,
-            foreground=fg,
-            bordercolor=border,
-            lightcolor=border,
-            darkcolor=border,
-            padding=(8, 6),
-        )
-        self.style.map(
-            "TCombobox",
-            fieldbackground=[("readonly", field)],
-            foreground=[("readonly", fg)],
-        )
-        self.style.configure(
-            "TButton",
-            background=field,
-            foreground=fg,
-            borderwidth=0,
-            padding=(13, 8),
-            font=("Segoe UI Semibold", 10),
-        )
-        self.style.map(
-            "TButton",
-            background=[("active", border), ("disabled", panel)],
-            foreground=[("disabled", muted)],
-        )
-        self.style.configure(
-            "Ghost.TButton", background=field, foreground=fg, padding=(14, 9)
-        )
-        self.style.configure(
-            "Primary.TButton",
-            background=accent,
-            foreground="white",
-            font=("Segoe UI Semibold", 10),
-            padding=(16, 9),
-        )
-        self.style.map(
-            "Primary.TButton",
-            background=[
-                ("active", "#60a5fa"),
-                ("disabled", "#475569"),
-            ],
-            foreground=[("disabled", "#cbd5e1")],
-        )
-        self.style.configure("TCheckbutton", background=bg, foreground=fg)
-        self.style.configure(
-            "Card.TCheckbutton", background=panel, foreground=fg
-        )
-        self.style.map(
-            "Card.TCheckbutton", background=[("active", panel)]
-        )
-        self.style.configure(
-            "Horizontal.TScale",
-            background=panel,
-            troughcolor=field,
-            bordercolor=panel,
-        )
-        self.style.configure(
-            "TNotebook", background=bg, borderwidth=0
-        )
-        self.style.configure(
-            "TNotebook.Tab",
-            background=panel,
-            foreground=fg,
-            padding=(18, 11),
-            font=("Segoe UI Semibold", 10),
-        )
-        self.style.map(
-            "TNotebook.Tab",
-            background=[("selected", panel), ("active", field)],
-            foreground=[("selected", accent), ("active", fg)],
-        )
-        self._theme_colors = (bg, field, fg)
+            style = "StatusGood.TLabel"
+        self.status_dot.configure(style=style)
 
     def _apply_text_colors(self) -> None:
-        bg, field, fg = self._theme_colors
+        colors = self._theme_palette
+        field = colors.field
+        fg = colors.foreground
         self.output.configure(
             bg=field,
             fg=fg,
             insertbackground=fg,
-            selectbackground="#2563eb",
+            selectbackground="#315ef5",
             relief="flat",
+            padx=16,
+            pady=14,
+            spacing1=2,
+            spacing3=8,
+            font=("Segoe UI Variable Text", 11),
+            highlightthickness=1,
+            highlightbackground=colors.border,
+            highlightcolor=colors.accent,
         )
+        if hasattr(self, "waveform_canvas"):
+            self.waveform_canvas.configure(background=field)
+            self._draw_waveform()
         if hasattr(self, "text_menu"):
             self.text_menu.configure(bg=field, fg=fg)
 
@@ -907,48 +1111,159 @@ class TranslatorWindow(tk.Tk):
         self.theme_button.configure(
             text="Tema chiaro" if self.dark_mode else "Tema scuro"
         )
+        self._schedule_settings_save()
 
-    def _toggle_live(self) -> None:
-        if self.live and self.live.running:
-            self.live.stop()
-            self.live_button.configure(text="Avvia AI Overlay OS")
+    def _toggle_live(self, *, require_browser_routing: bool = False) -> None:
+        if TranslatorWindow._session_active(self, SessionMode.DOCUMENT):
+            self.status_var.set("Interrompi prima la traduzione del documento.")
             return
+        if self.live and self.live.running:
+            self._stop_live_mode()
+            return
+        if TranslatorWindow._session_active(self, SessionMode.FILE):
+            self._stop()
+        self._select_source_mode("live")
         settings = self._settings()
-        self.overlay.show()
-        self.overlay_button.configure(text="Nascondi overlay")
-        self.live = LiveTranslator(
-            translator=OllamaTranslator(model=settings.ollama_model),
-            cache=TranslationCache(),
-            whisper_model=settings.whisper_model,
-            source_language=settings.language,
-            rate=settings.rate,
-            speech_engine=settings.speech_engine,
-            voice=settings.voice,
-            speak=self.live_voice_var.get(),
-            capture_device=(
-                None
-                if self.capture_device_var.get()
-                == "Audio di sistema (predefinito)"
-                else self.capture_device_var.get()
-            ),
-            on_text=lambda text: self.after(0, self._show_text, text),
-            on_status=lambda text: self.after(
-                0, self._set_live_status, text
-            ),
-            on_error=lambda error: self.after(0, self._show_error, error),
+        profile_key = profile_key_from_label(self.profile_var.get())
+        volume_ducker = (
+            self.browser_audio_controller.ducker(
+                profile_by_key(profile_key).ducking_percent
+            )
+            if self.auto_ducking_var.get() and self.live_voice_var.get()
+            else None
         )
-        self.live.start()
+        live_run_id = self.live_controller.begin()
+        self._live_run_id = live_run_id
+        live: LiveTranslator | None = None
+        try:
+            routed = self._route_browser_audio()
+            if require_browser_routing and not routed:
+                raise AudioRoutingError(
+                    "Routing automatico del browser non disponibile. "
+                    "Verifica VB-Cable e riprova."
+                )
+            self.overlay.show()
+            self.overlay_button.configure(text="Nascondi overlay")
+            live, live_model, switched_live_model = build_live_translator(
+                model=settings.ollama_model,
+                whisper_model=settings.whisper_model,
+                source_language=settings.language,
+                rate=settings.rate,
+                profile=profile_key,
+                speech_engine=settings.speech_engine,
+                voice=settings.voice,
+                speak=self.live_voice_var.get(),
+                capture_device=(
+                    None
+                    if self.capture_device_var.get()
+                    == "Audio di sistema (predefinito)"
+                    else self.capture_device_var.get()
+                ),
+                on_text=lambda text: self.after(0, self._show_text, text),
+                on_status=lambda text, run_id=live_run_id: self.after(
+                    0, self._set_live_status, text, run_id
+                ),
+                on_error=lambda error: self.after(0, self._show_live_error, error),
+                on_metrics=lambda metrics: self.after(0, self._update_latency, metrics),
+                volume_ducker=volume_ducker,
+                live_factory=LiveTranslator,
+            )
+            status_var = getattr(self, "status_var", None)
+            if switched_live_model:
+                if status_var is not None:
+                    status_var.set(
+                        f"Live Rapido: uso {live_model} per ridurre la latenza"
+                    )
+            else:
+                effective_whisper = profile_by_key(profile_key).whisper_model
+                if status_var is not None:
+                    status_var.set(
+                        f"Live {profile_by_key(profile_key).label}: Whisper "
+                        f"{effective_whisper}"
+                    )
+            if not self.live_controller.activate(live, live_run_id):
+                raise RuntimeError("Sessione Overlay OS non più valida.")
+        except Exception:
+            self.session.fail(SessionMode.LIVE, live_run_id)
+            if live is not None:
+                try:
+                    live.stop()
+                except Exception:
+                    pass
+            try:
+                self.overlay.hide()
+                self.overlay_button.configure(text="Mostra overlay")
+            except Exception:
+                pass
+            self._restore_browser_audio()
+            raise
+        self.live = live
         self.live_button.configure(text="Stop Overlay OS")
+        self._sync_mode_controls()
 
-    def _set_live_status(self, text: str) -> None:
-        self.status_var.set(text)
-        if text in {"Overlay OS interrotto", "Errore Overlay OS"}:
+    def _stop_live_mode(self) -> bool:
+        live = self.live
+        if not self.live_controller.stop(live):
+            self.status_var.set(
+                "AI Overlay OS non si è arrestato: attendi e riprova."
+            )
+            self._sync_mode_controls()
+            return False
+        self.live = None
+        self._live_run_id = self.session.run_id
+        self._restore_browser_audio()
+        self.live_button.configure(text="Avvia AI Overlay OS")
+        self._sync_mode_controls()
+        return True
+
+    def _routing_browser(self) -> str:
+        if self._source_browser in SUPPORTED_BROWSERS:
+            return self._source_browser
+        selected = self.routing_browser_var.get().lower()
+        return selected if selected in SUPPORTED_BROWSERS else "firefox"
+
+    def _route_browser_audio(self) -> bool:
+        if "cable output" not in self.capture_device_var.get().lower():
+            return False
+        routed = self.browser_audio_controller.route()
+        self._browser_audio_routed = (
+            self.browser_audio_controller.routed_browser if routed else None
+        )
+        return routed
+
+    def _restore_browser_audio(self) -> bool:
+        restored = self.browser_audio_controller.restore()
+        self._browser_audio_routed = (
+            self.browser_audio_controller.routed_browser
+        )
+        return restored
+
+    def _show_live_error(self, error: Exception) -> None:
+        self._restore_browser_audio()
+        self._show_error(error)
+
+    def _set_live_status(self, text: str, run_id: int | None = None) -> None:
+        if run_id is not None and run_id != self._live_run_id:
+            return
+        terminal = text in {"Overlay OS interrotto", "Errore Overlay OS"}
+        if not TranslatorWindow._session_active(self, SessionMode.FILE):
+            self.status_var.set(text)
+        if terminal:
+            if text == "Errore Overlay OS":
+                self.session.fail(SessionMode.LIVE, self._live_run_id)
+            self.session.finish(SessionMode.LIVE)
+            self._live_run_id = self.session.run_id
+            self.live = None
+            self._restore_browser_audio()
             self.live_button.configure(text="Avvia AI Overlay OS")
+            self._sync_mode_controls()
 
     def _settings(self) -> RunSettings:
-        selected_voice = self.voice_var.get()
-        if self.speech_engine_var.get() == "kokoro":
-            selected_voice = KOKORO_VOICES.get(selected_voice, selected_voice)
+        def normalize_voice(value: str) -> str:
+            selected = value.strip()
+            return KOKORO_VOICES.get(selected, selected)
+
+        selected_voice = normalize_voice(self.voice_var.get())
         return RunSettings(
             source=self.file_var.get().strip(),
             ollama_model=self.model_var.get().strip() or "translategemma:latest",
@@ -960,37 +1275,158 @@ class TranslatorWindow(tk.Tk):
             cookies_browser=(
                 None if self.cookies_var.get() == "nessuno" else self.cookies_var.get()
             ),
+            diarize_speakers=bool(self.diarize_speakers_var.get()),
+            speaker_count=int(self.speaker_count_var.get()),
+            audio_track=int(self.audio_track_var.get()),
+            speaker_voices=(
+                normalize_voice(self.speaker_voice_1_var.get()),
+                normalize_voice(self.speaker_voice_2_var.get()),
+            ),
         )
 
     def _refresh_voices(self, _event=None) -> None:
-        if self.speech_engine_var.get() == "kokoro":
-            values = tuple(KOKORO_VOICES)
+        def apply_values(values: tuple[str, ...]) -> None:
             self.voice_combo.configure(values=values)
-            self.voice_var.set(values[0])
-            return
-        values = tuple(windows_voice_names()) or ("default",)
-        self.voice_combo.configure(values=values)
+            for name in ("speaker_voice_1_combo", "speaker_voice_2_combo"):
+                combo = getattr(self, name, None)
+                if combo is not None:
+                    combo.configure(values=values)
+
+        values = tuple(KOKORO_VOICES)
+        apply_values(values)
         self.voice_var.set(values[0])
 
-    def _load_models(self) -> None:
+    def _detect_readiness(self) -> None:
+        readiness = detect_system_readiness()
+        self._call_in_ui(self._apply_readiness, readiness)
+
+    def _initialize_environment(self) -> None:
+        readiness = detect_system_readiness()
+        self._call_in_ui(self._apply_readiness, readiness)
+        self._load_models(argos_available=readiness.available("argos"))
+
+    def _run_preflight(self) -> None:
+        if self._preflight_running:
+            return
+        self._preflight_running = True
+        self.system_status_var.set("Verifica in corso…")
+        self._start_worker(self._perform_preflight, name="uvt-preflight")
+
+    def _perform_preflight(self) -> None:
         try:
-            models = OllamaTranslator(model="translategemma:latest").list_models()
-            self.after(0, self.model_combo.configure, {"values": models})
-        except Exception:
-            pass
+            readiness = detect_system_readiness(deep=True)
+            self._call_in_ui(self._apply_readiness, readiness)
+            self._load_models(argos_available=readiness.available("argos"))
+            self._load_capture_devices()
+        finally:
+            self._call_in_ui(self._finish_preflight)
+
+    def _finish_preflight(self) -> None:
+        self._preflight_running = False
+
+    def _apply_readiness(self, readiness: SystemReadiness) -> None:
+        self._readiness = readiness
+        if (
+            self.speech_engine_var.get() == "kokoro"
+            and not readiness.available("kokoro")
+        ):
+            self.status_var.set(
+                "Kokoro non installato: installa il motore per usare la voce neurale."
+            )
+        self.system_status_var.set(readiness.summary())
+        if self.status_var.get() in {"Pronto", "Sistema pronto"}:
+            self.status_var.set(readiness.summary())
+
+    def _load_models(self, *, argos_available: bool | None = None) -> None:
+        models: list[str] = []
+        try:
+            models.extend(
+                OllamaTranslator(model="translategemma:latest").list_models()
+            )
+        except Exception as error:
+            log_exception("models", "discovery_failed", error)
+        has_argos = (
+            argos_available
+            if argos_available is not None
+            else ArgosTranslator.available()
+        )
+        if has_argos:
+            models.insert(0, ARGOS_MODEL)
+        if models:
+            self._call_in_ui(self._apply_models, models)
+
+    def _apply_models(self, models: list[str]) -> None:
+        self.model_combo.configure(values=models)
+        selected = select_available_model(models, self.model_var.get())
+        if selected is not None and selected != self.model_var.get():
+            self.model_var.set(selected)
+            self.status_var.set(f"Modello selezionato automaticamente: {selected}")
 
     def _load_capture_devices(self) -> None:
-        values = (
-            "Audio di sistema (predefinito)",
-            *capture_device_names(),
+        try:
+            devices = capture_device_names()
+        except Exception as error:
+            log_exception("audio", "device_discovery_failed", error)
+            self._call_in_ui(self._apply_capture_device_error, error)
+            return
+        values = ("Audio di sistema (predefinito)", *devices)
+        self._call_in_ui(self._apply_capture_devices, values)
+
+    def _apply_capture_device_error(self, error: Exception) -> None:
+        self._capture_devices_loaded = True
+        self._browser_overlay_pending = False
+        self.live_button.configure(
+            state=(
+                "disabled"
+                if TranslatorWindow._session_active(self, SessionMode.FILE)
+                else "normal"
+            )
         )
-        self.after(
-            0, self.capture_combo.configure, {"values": values}
+        self.status_var.set(present_error(error).problem)
+
+    def _apply_capture_devices(self, values: tuple[str, ...]) -> None:
+        self._capture_devices_loaded = True
+        self.capture_combo.configure(values=values)
+        cable_output = preferred_cable_output(values)
+        current = self.capture_device_var.get()
+        if self._browser_overlay_pending and cable_output:
+            self.capture_device_var.set(cable_output)
+        elif current in values:
+            self.capture_device_var.set(current)
+        elif cable_output:
+            self.capture_device_var.set(cable_output)
+        else:
+            self.capture_device_var.set("Audio di sistema (predefinito)")
+        if cable_output:
+            self.status_var.set(
+                "Overlay pronto: audio automatico tramite VB-Cable"
+            )
+        else:
+            self.status_var.set(
+                "VB-Cable non rilevato: disponibile Audio di sistema"
+            )
+        self.live_button.configure(
+            state=(
+                "disabled"
+                if TranslatorWindow._session_active(self, SessionMode.FILE)
+                else "normal"
+            )
         )
+        if self._browser_overlay_pending:
+            self._browser_overlay_pending = False
+            if cable_output:
+                self.after_idle(self._start_browser_overlay)
+            else:
+                self.status_var.set(
+                    "Avvio automatico annullato: VB-Cable non rilevato. "
+                    "Installa o attiva VB-Cable, poi riprova."
+                )
 
     def _set_status(self, text: str) -> None:
         self.status_var.set(text)
         if text in {"Completato", "Interrotto", "Errore"}:
+            if text == "Errore":
+                self.session.fail(SessionMode.FILE, self._file_run_id)
             self._reset_controls()
 
     def _show_text(self, text: str) -> None:
@@ -1003,31 +1439,248 @@ class TranslatorWindow(tk.Tk):
         self.output.configure(state="disabled")
 
     def _show_error(self, error: Exception) -> None:
-        messagebox.showerror("Errore", str(error))
+        log_exception("ui", "operation_failed", error)
+        presentation = present_error(error)
+        messagebox.showerror(presentation.title, presentation.message)
 
     def _reset_controls(self) -> None:
-        self.start_button.configure(state="normal")
+        self.session.finish(SessionMode.FILE)
+        self._file_run_id = self.session.run_id
         self.pause_button.configure(state="disabled", text="Pausa")
         self.stop_button.configure(state="disabled")
+        self._sync_mode_controls()
+
+    def _sync_mode_controls(self) -> None:
+        file_active = self.session.mode is SessionMode.FILE and self.session.busy
+        live_active = self.session.mode is SessionMode.LIVE and self.session.busy
+        document_active = (
+            self.session.mode is SessionMode.DOCUMENT and self.session.busy
+        )
+        self.start_button.configure(
+            state="disabled" if self.session.busy else "normal"
+        )
+        live_enabled = live_active or (
+            getattr(self, "_capture_devices_loaded", False)
+            and not file_active
+            and not document_active
+        )
+        self.live_button.configure(
+            state="normal" if live_enabled else "disabled"
+        )
+        selector_state = "disabled" if self.session.busy else "normal"
+        self.file_mode_button.configure(state=selector_state)
+        self.live_mode_button.configure(state=selector_state)
+        document_mode_button = getattr(self, "document_mode_button", None)
+        if document_mode_button is not None:
+            document_mode_button.configure(state=selector_state)
+        document_start_button = getattr(self, "document_start_button", None)
+        if document_start_button is not None:
+            document_start_button.configure(
+                state="disabled" if self.session.busy else "normal"
+            )
+        document_stop_button = getattr(self, "document_stop_button", None)
+        if document_stop_button is not None:
+            document_stop_button.configure(
+                state="normal" if document_active else "disabled"
+            )
+
+    @staticmethod
+    def _session_active(window, mode: SessionMode) -> bool:
+        session = getattr(window, "session", None)
+        return bool(session and session.mode is mode and session.busy)
+
+    def _request_close(self) -> None:
+        if self.session.busy:
+            self.withdraw()
+            self.status_var.set(
+                "UVT continua in background; riaprilo dall'estensione"
+            )
+            if not getattr(self, "_background_notice_shown", False):
+                tray = getattr(self, "_tray", None)
+                if tray is not None:
+                    tray.notify(
+                        "La traduzione continua in background. Usa l'icona UVT per riaprire."
+                    )
+                self._background_notice_shown = True
+            return
+        self._close()
+
+    def _restore_from_background(self) -> None:
+        self.deiconify()
+        self.lift()
+        try:
+            self.focus_force()
+        except tk.TclError:
+            pass
+
+    def _stop_from_tray(self) -> None:
+        if TranslatorWindow._session_active(self, SessionMode.FILE):
+            self._stop()
+        if TranslatorWindow._session_active(self, SessionMode.LIVE):
+            self._stop_live_mode()
+        if TranslatorWindow._session_active(self, SessionMode.DOCUMENT):
+            self._stop_document_translation()
 
     def _close(self) -> None:
-        if self.progressive:
-            self.progressive.stop()
-        if self.player:
-            self.player.stop()
-        self.preview.stop()
-        if self.live:
-            self.live.stop()
-        if self.download_directory:
-            self.download_directory.cleanup()
-        if self.preview_directory:
-            self.preview_directory.cleanup()
+        if self._closing:
+            return
+        self._closing = True
+        self._runtime.begin_shutdown()
+        self.document_controller.cancel.set()
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.close()
+        hotkeys = getattr(self, "_hotkeys", None)
+        if hotkeys is not None:
+            hotkeys.close()
+        if self._instance_broker is not None:
+            self._instance_broker.begin_shutdown()
+        for job in (
+            self._instance_poll_job,
+            self._browser_bridge_poll_job,
+            self._hotkey_poll_job,
+            self._settings_save_job,
+        ):
+            if job:
+                try:
+                    self.after_cancel(job)
+                except tk.TclError:
+                    pass
+        self._instance_poll_job = None
+        self._browser_bridge_poll_job = None
+        self._hotkey_poll_job = None
+        self._settings_save_job = None
+        if self._browser_bridge is not None:
+            self._browser_bridge.close()
+        failures = self._runtime.stop_named(
+            (
+                ("progressive", self.progressive.stop if self.progressive else None),
+                ("player", self.player.stop if self.player else None),
+                ("preview", self.preview.stop),
+                ("live", self.live.stop if self.live else None),
+            ),
+            on_error=lambda name, error: log_exception(
+                "shutdown", f"{name}_stop_failed", error
+            ),
+        )
+        workers_stopped = self._join_workers()
+        if not workers_stopped:
+            failures.append("workers")
+        restored = self._restore_browser_audio()
+        try:
+            self._save_app_settings()
+        except Exception as error:
+            failures.append("settings")
+            log_exception("shutdown", "settings_flush_failed", error)
+        if workers_stopped:
+            try:
+                self.workflow.close()
+            except Exception as error:
+                failures.append("workflow")
+                log_exception("shutdown", "workflow_cleanup_failed", error)
+        if not restored:
+            try:
+                messagebox.showwarning(
+                    "Ripristino audio necessario",
+                    "Non è stato possibile ripristinare il browser. UVT riproverà "
+                    "automaticamente al prossimo avvio; nel frattempo seleziona "
+                    "manualmente l'uscita predefinita di Windows.",
+                )
+            except tk.TclError:
+                pass
+        if failures:
+            logger("shutdown").warning(
+                "event=shutdown_partial failures=%s", ",".join(failures)
+            )
+        launch_pending_update()
         self.destroy()
 
 
-def main() -> int:
-    TranslatorWindow().mainloop()
-    return 0
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    broker: SingleInstanceBroker | None = None,
+    audio_router: AudioRoutingLeaseManager | None = None,
+    settings_store: SettingsStore | None = None,
+    browser_bridge: LocalBrowserBridge | None = None,
+) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    request = None
+    initial_browser = None
+    auto_start_overlay = False
+    startup_error = None
+    if arguments:
+        try:
+            if len(arguments) != 1:
+                raise BrowserProtocolError("È consentito un solo collegamento UVT.")
+            request = parse_browser_request(arguments[0])
+        except BrowserProtocolError as error:
+            startup_error = error
+    instance = broker or SingleInstanceBroker()
+    router = audio_router or AudioRoutingLeaseManager()
+    bridge = browser_bridge or LocalBrowserBridge()
+    try:
+        if not instance.acquire():
+            if request is not None:
+                forward = getattr(
+                    instance,
+                    "forward_browser_request",
+                    instance.forward_overlay,
+                )
+                forwarded = forward(arguments[0])
+            else:
+                forwarded = instance.forward_focus()
+            if forwarded:
+                return 0
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline and not instance.acquire():
+                time.sleep(0.08)
+            if not instance.is_owner:
+                raise InstanceIPCError(
+                    "La richiesta non è stata inoltrata all'istanza UVT esistente."
+                )
+        if request is not None:
+            if not claim_browser_request(request):
+                return 0
+            initial_browser = request.browser
+            auto_start_overlay = request.action == OVERLAY_ACTION
+        instance.activate()
+        if not bridge.start():
+            logger("browser_bridge").warning("event=bridge_start_failed")
+            bridge = None
+        try:
+            recovered = router.recover()
+            if recovered:
+                logger("routing").info("event=stale_route_recovered")
+        except AudioRoutingError as error:
+            log_exception("routing", "startup_recovery_failed", error)
+            startup_error = error
+            auto_start_overlay = False
+        window = TranslatorWindow(
+            initial_browser=initial_browser,
+            auto_start_overlay=auto_start_overlay,
+            audio_router=router,
+            settings_store=settings_store,
+            instance_broker=instance,
+            browser_bridge=bridge,
+        )
+        if startup_error:
+            window.after_idle(
+                messagebox.showerror,
+                "Avvio Universal Video Translator",
+                str(startup_error),
+            )
+        if request is not None and request.action != OVERLAY_ACTION:
+            window.after_idle(window._handle_browser_request, request)
+        window.mainloop()
+        return 0
+    except InstanceIPCError as error:
+        log_exception("ipc", "instance_forward_failed", error)
+        return 1
+    finally:
+        if bridge is not None:
+            bridge.close()
+        instance.close()
 
 
 if __name__ == "__main__":
