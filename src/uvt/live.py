@@ -8,7 +8,7 @@ import time
 import warnings
 from collections import deque
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
@@ -40,6 +40,11 @@ class _SpeechItem:
     text: str
     queued_at: float
     source_duration_seconds: float = 0.0
+    prepared: threading.Event = field(
+        default_factory=threading.Event,
+        compare=False,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +72,18 @@ def compact_speech_text(text: str, max_words: int) -> str:
     sentence_words = first_sentence.split()
     selected = sentence_words if len(sentence_words) <= max_words else words
     return " ".join(selected[:max_words]).rstrip(" ,;:-") + "…"
+
+
+def speech_is_stale(
+    queue_ms: float,
+    source_duration_seconds: float,
+    maximum_delay_seconds: float,
+) -> bool:
+    allowed_ms = max(
+        1800.0,
+        min(maximum_delay_seconds * 1000, source_duration_seconds * 1400),
+    )
+    return queue_ms > allowed_ms
 
 
 def is_probable_echo(text: str, spoken_history: list[str]) -> bool:
@@ -129,7 +146,13 @@ def uninitialize_windows_com() -> None:
 
 
 def capture_device_names() -> list[str]:
+    com_initialized = False
     try:
+        # SoundCard usa WASAPI: ogni thread Windows che enumera i dispositivi
+        # deve inizializzare COM. La GUI esegue questa funzione in un worker;
+        # senza questo passaggio Firefox può essere instradato correttamente
+        # ma UVT resta senza ingresso audio.
+        com_initialized = initialize_windows_com()
         import soundcard as sc
 
         return sorted(
@@ -141,7 +164,12 @@ def capture_device_names() -> list[str]:
             key=str.casefold,
         )
     except Exception as error:
-        raise LiveCaptureError("Impossibile rilevare i dispositivi audio.") from error
+        raise LiveCaptureError(
+            f"Impossibile rilevare i dispositivi audio: {error}"
+        ) from error
+    finally:
+        if com_initialized:
+            uninitialize_windows_com()
 
 
 def preferred_cable_output(devices: Iterable[str]) -> str | None:
@@ -204,11 +232,15 @@ class LiveTranslator:
         self._translation_queue: queue.Queue = queue.Queue(
             maxsize=self.profile.audio_queue_size
         )
+        self._speech_prepare_queue: queue.Queue = queue.Queue(maxsize=1)
         self._spoken_history: deque[str] = deque(maxlen=5)
+        self._last_external_subtitle_at = 0.0
+        self._last_external_subtitle = ""
         self._thread: threading.Thread | None = None
         self._capture_thread: threading.Thread | None = None
         self._speech_thread: threading.Thread | None = None
         self._translation_thread: threading.Thread | None = None
+        self._speech_prepare_thread: threading.Thread | None = None
         self._warmup_thread: threading.Thread | None = None
         self._warmup_complete = threading.Event()
         self._engine = None
@@ -225,7 +257,10 @@ class LiveTranslator:
         self._audio_queue = queue.Queue(maxsize=self.profile.audio_queue_size)
         self._speech_queue = queue.Queue(maxsize=self.profile.speech_queue_size)
         self._translation_queue = queue.Queue(maxsize=self.profile.audio_queue_size)
+        self._speech_prepare_queue = queue.Queue(maxsize=1)
         self._spoken_history.clear()
+        self._last_external_subtitle_at = 0.0
+        self._last_external_subtitle = ""
         self._adaptive_sync = AdaptiveSyncController(self.rate)
         self._warmup_complete.clear()
         if self._runtime.closing:
@@ -238,6 +273,7 @@ class LiveTranslator:
         put_latest(self._audio_queue, _END)
         put_latest(self._speech_queue, _END)
         put_latest(self._translation_queue, _END)
+        put_latest(self._speech_prepare_queue, _END)
         if self._engine is not None:
             try:
                 self._engine.stop()
@@ -253,6 +289,7 @@ class LiveTranslator:
             self._capture_thread,
             self._speech_thread,
             self._translation_thread,
+            self._speech_prepare_thread,
             self._warmup_thread,
             self._thread,
         )
@@ -269,9 +306,26 @@ class LiveTranslator:
             self._capture_thread = None
             self._speech_thread = None
             self._translation_thread = None
+            self._speech_prepare_thread = None
             self._warmup_thread = None
             self._thread = None
         return stopped
+
+    def submit_subtitle(self, text: str) -> None:
+        """Inject a visible browser caption into the Live translation queue."""
+        normalized = " ".join(str(text).split()).strip()
+        if not normalized or len(normalized) > 500 or self._stop.is_set():
+            return
+        now = time.monotonic()
+        if normalized.casefold() == self._last_external_subtitle.casefold():
+            self._last_external_subtitle_at = now
+            return
+        self._last_external_subtitle = normalized
+        self._last_external_subtitle_at = now
+        put_latest(
+            self._translation_queue,
+            _TranscriptionItem(normalized, 0.0, 0.0, 0.0),
+        )
 
     def _warmup_translator(self) -> None:
         try:
@@ -286,6 +340,9 @@ class LiveTranslator:
     def _capture(self, sample_rate: int) -> None:
         com_initialized = False
         try:
+            # Inizializza COM prima di importare SoundCard: l'import può
+            # enumerare WASAPI su alcune versioni del driver audio.
+            com_initialized = initialize_windows_com()
             import soundcard as sc
 
             warning_category = getattr(sc, "SoundcardRuntimeWarning", None)
@@ -299,8 +356,6 @@ class LiveTranslator:
                     category=warning_category,
                 )
 
-            # SoundCard performs its own first COM initialization at import.
-            com_initialized = initialize_windows_com()
             if self.capture_device:
                 microphone = next(
                     (
@@ -438,15 +493,39 @@ class LiveTranslator:
                     )
                 )
                 if self.speak:
+                    speech_item = _SpeechItem(
+                        translated,
+                        time.monotonic(),
+                        item.capture_ms / 1000,
+                    )
+                    put_latest(self._speech_prepare_queue, speech_item)
                     put_latest(
                         self._speech_queue,
-                        _SpeechItem(translated, time.monotonic(), item.capture_ms / 1000),
+                        speech_item,
                     )
         except Exception as exc:
             if not self._stop.is_set():
                 self.on_error(exc)
                 self._stop.set()
                 put_latest(self._audio_queue, _END)
+
+    def _prepare_speech(self) -> None:
+        while not self._stop.is_set():
+            item = self._speech_prepare_queue.get()
+            if item is _END:
+                return
+            if not isinstance(item, _SpeechItem):
+                continue
+            try:
+                while self._engine is None and not self._stop.wait(0.02):
+                    pass
+                prewarm = getattr(self._engine, "prewarm", None)
+                if prewarm is not None and not self._stop.is_set():
+                    prewarm(item.text)
+            except Exception as exc:
+                self.on_status(f"Preparazione voce non disponibile: {exc}")
+            finally:
+                item.prepared.set()
 
     def _speak(self) -> None:
         com_initialized = False
@@ -457,17 +536,31 @@ class LiveTranslator:
             self._engine = create_speech_engine(
                 self.speech_engine, self.voice, self.rate
             )
+            dropped_speech = 0
             while not self._stop.is_set():
                 item = self._speech_queue.get()
                 if item is _END:
                     return
-                speech_item = (
-                    item
-                    if isinstance(item, _SpeechItem)
-                    else _SpeechItem(str(item), time.monotonic())
-                )
+                if isinstance(item, _SpeechItem):
+                    speech_item = item
+                else:
+                    speech_item = _SpeechItem(str(item), time.monotonic())
+                    speech_item.prepared.set()
                 text = speech_item.text
                 queue_ms = (time.monotonic() - speech_item.queued_at) * 1000
+                if speech_is_stale(
+                    queue_ms,
+                    speech_item.source_duration_seconds,
+                    self.profile.max_queue_delay_seconds,
+                ):
+                    dropped_speech += 1
+                    self.on_metrics(
+                        {
+                            "speech_queue_ms": round(queue_ms, 1),
+                            "speech_dropped": dropped_speech,
+                        }
+                    )
+                    continue
                 compressed = False
                 if queue_ms > 1800:
                     word_budget = max(
@@ -486,6 +579,7 @@ class LiveTranslator:
                 set_rate = getattr(self._engine, "set_rate", None)
                 if set_rate is not None:
                     set_rate(adaptive_rate)
+                speech_item.prepared.wait(timeout=8.0)
                 self.on_metrics(
                     {
                         "speech_queue_ms": round(queue_ms, 1),
@@ -551,6 +645,10 @@ class LiveTranslator:
                     self._speak,
                     name="uvt-live-speech",
                 )
+                self._speech_prepare_thread = self._runtime.start(
+                    self._prepare_speech,
+                    name="uvt-live-speech-prepare",
+                )
             self.on_status("Overlay OS: caricamento Whisper…")
             model_name = self.whisper_model or self.profile.whisper_model
             whisper = WhisperModel(
@@ -614,12 +712,18 @@ class LiveTranslator:
                     beam_size=self.profile.beam_size,
                     best_of=1,
                 )
+                segments = list(segments)
                 transcribe_ms = (time.monotonic() - transcribe_started) * 1000
                 original = " ".join(
                     segment.text.strip()
                     for segment in segments
                     if segment.text.strip()
                 ).strip()
+                # Quando il browser fornisce una didascalia visibile, evita di
+                # tradurre anche la stessa frase da Whisper: la caption è più
+                # precisa e riduce la latenza della voce Live.
+                if time.monotonic() - self._last_external_subtitle_at < 2.5:
+                    continue
                 if (
                     not original
                     or self._stop.is_set()
@@ -643,4 +747,5 @@ class LiveTranslator:
         finally:
             self._stop.set()
             put_latest(self._translation_queue, _END)
+            put_latest(self._speech_prepare_queue, _END)
             put_latest(self._speech_queue, _END)

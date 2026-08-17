@@ -31,6 +31,12 @@ def find_executable(name: str) -> str | None:
             )
 
     for candidate in candidates:
-        if candidate.is_file():
-            return str(candidate)
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError:
+            # Windows can deny metadata access to a stale or restricted
+            # installation (for example Ollama under AppData). Treat it as
+            # unavailable so readiness detection never crashes its worker.
+            continue
     return None

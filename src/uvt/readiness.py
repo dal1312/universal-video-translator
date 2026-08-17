@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 from dataclasses import dataclass
 
-from .paths import app_paths
 from .ollama import ollama_executable
 from .transcription import TranscriptionError, ensure_ffmpeg
 from .translation import ArgosTranslator
@@ -43,7 +42,7 @@ class SystemReadiness:
         return f"Componenti opzionali mancanti: {labels}"
 
 
-def detect_system_readiness() -> SystemReadiness:
+def detect_system_readiness(*, deep: bool = False) -> SystemReadiness:
     specifications = (
         ("ollama", "Ollama", bool(ollama_executable()), "traduzione"),
         ("ffmpeg", "FFmpeg", _ffmpeg_available(), "media"),
@@ -55,15 +54,13 @@ def detect_system_readiness() -> SystemReadiness:
         ),
         ("kokoro", "Kokoro", _module_available("kokoro"), "voce neurale"),
         (
-            "piper",
-            "Piper opzionale",
-            _piper_available(),
-            "voce leggera",
-        ),
-        (
             "argos",
             "Argos opzionale",
-            ArgosTranslator.available(),
+            (
+                ArgosTranslator.available()
+                if deep
+                else ArgosTranslator.installed()
+            ),
             "traduzione fallback",
         ),
         (
@@ -104,13 +101,6 @@ def _module_available(module: str) -> bool:
         return importlib.util.find_spec(module) is not None
     except (ImportError, AttributeError, ValueError):
         return False
-
-
-def _piper_available() -> bool:
-    runtime = app_paths().piper_runtime
-    return (runtime / "Scripts" / "python.exe").is_file() or (
-        runtime / "bin" / "python"
-    ).is_file()
 
 
 def _ffmpeg_available() -> bool:

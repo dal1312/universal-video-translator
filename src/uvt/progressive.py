@@ -40,6 +40,7 @@ class ProgressiveDubPlayer:
         rate: int = 185,
         speech_engine: str = "kokoro",
         voice: str = "if_sara",
+        speaker_voices: tuple[str, ...] = (),
         on_text: Callable[[str], None] | None = None,
         on_status: Callable[[str], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
@@ -53,6 +54,7 @@ class ProgressiveDubPlayer:
         self.rate = rate
         self.speech_engine = speech_engine
         self.voice = voice
+        self.speaker_voices = speaker_voices
         self.on_text = on_text or (lambda _text: None)
         self.on_status = on_status or (lambda _status: None)
         self.on_error = on_error or (lambda _error: None)
@@ -63,6 +65,8 @@ class ProgressiveDubPlayer:
         self._initial: list[object] = []
         self._translations: dict[str, str] = {}
         self._engine = None
+        self._engines: dict[str, object] = {}
+        self._speaker_order: dict[str, int] = {}
         self._temporary: tempfile.TemporaryDirectory | None = None
         self._cue_index = 0
         self._chunk_start = 0.0
@@ -94,9 +98,7 @@ class ProgressiveDubPlayer:
         self._pause.clear()
         self._temporary = tempfile.TemporaryDirectory(prefix="uvt-buffer-")
         self.on_status("Caricamento motore voce…")
-        self._engine = create_speech_engine(
-            self.speech_engine, self.voice, self.rate
-        )
+        self._engine = self._engine_for(None)
         self._voice_cursor_samples = 0
         self._carry = np.zeros(0, dtype=np.float32)
         required = math.ceil(INITIAL_BUFFER_SECONDS / CHUNK_SECONDS)
@@ -166,6 +168,13 @@ class ProgressiveDubPlayer:
             try:
                 self._engine.stop()
             except RuntimeError:
+                pass
+        for engine in self._engines.values():
+            if engine is self._engine:
+                continue
+            try:
+                engine.stop()
+            except (AttributeError, RuntimeError):
                 pass
         deadline = time.monotonic() + max(0.0, timeout)
         current = threading.current_thread()
@@ -331,22 +340,37 @@ class ProgressiveDubPlayer:
             except Exception as exc:
                 self.on_status(f"Cache traduzione non aggiornata: {exc!s}")
 
-    def _render(self, text: str, index: int, max_duration: float):
+    def _engine_for(self, cue: Cue | None):
+        selected = self.voice
+        if cue is not None and cue.speaker:
+            index = self._speaker_order.setdefault(
+                cue.speaker, len(self._speaker_order)
+            )
+            if index < len(self.speaker_voices) and self.speaker_voices[index].strip():
+                selected = self.speaker_voices[index].strip()
+        if selected not in self._engines:
+            self._engines[selected] = create_speech_engine(
+                self.speech_engine, selected, self.rate
+            )
+        return self._engines[selected]
+
+    def _render(self, text: str, index: int, max_duration: float, cue: Cue):
         import numpy as np
 
-        if hasattr(self._engine, "render_to_duration"):
-            audio, samplerate = self._engine.render_to_duration(
+        engine = self._engine_for(cue)
+        if hasattr(engine, "render_to_duration"):
+            audio, samplerate = engine.render_to_duration(
                 text, max_duration
             )
             samples = np.asarray(audio, dtype=np.float32)
-        elif hasattr(self._engine, "render"):
-            audio, samplerate = self._engine.render(text)
+        elif hasattr(engine, "render"):
+            audio, samplerate = engine.render(text)
             samples = np.asarray(audio, dtype=np.float32)
         else:
             import soundfile as sf
 
             destination = Path(self._temporary.name) / f"cue-{index:06d}.wav"
-            self._engine.save(text, destination)
+            engine.save(text, destination)
             samples, samplerate = sf.read(
                 destination, dtype="float32", always_2d=False
             )
@@ -400,6 +424,7 @@ class ProgressiveDubPlayer:
                 self._translations[cue.text],
                 index,
                 self._voice_slot(index, cue),
+                cue,
             )
             cue_start_sample = max(0, round(cue.start * SAMPLE_RATE))
             gap_samples = (

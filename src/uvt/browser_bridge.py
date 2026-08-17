@@ -25,6 +25,12 @@ class BridgeCommand:
     browser: str
 
 
+@dataclass(frozen=True, slots=True)
+class BrowserSubtitle:
+    text: str
+    browser: str
+
+
 class LocalBrowserBridge:
     """Loopback-only bridge for the browser extension.
 
@@ -51,6 +57,7 @@ class LocalBrowserBridge:
         }
         self._state_lock = threading.Lock()
         self._commands: queue.Queue[BridgeCommand] = queue.Queue(maxsize=16)
+        self._subtitles: queue.Queue[BrowserSubtitle] = queue.Queue(maxsize=16)
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._token = token or self._load_or_create_token()
@@ -84,7 +91,7 @@ class LocalBrowserBridge:
                 self._json(200, bridge.snapshot())
 
             def do_POST(self) -> None:  # noqa: N802
-                if self.path != "/v1/command":
+                if self.path not in {"/v1/command", "/v1/subtitle"}:
                     self.send_error(404)
                     return
                 if not self._authorized():
@@ -95,12 +102,18 @@ class LocalBrowserBridge:
                     if size < 2 or size > 1024:
                         raise ValueError
                     payload = json.loads(self.rfile.read(size))
-                    command = bridge._parse_command(payload)
-                    bridge._enqueue(command)
+                    if self.path == "/v1/subtitle":
+                        subtitle = bridge._parse_subtitle(payload)
+                        bridge._enqueue_subtitle(subtitle)
+                        accepted = "subtitle"
+                    else:
+                        command = bridge._parse_command(payload)
+                        bridge._enqueue(command)
+                        accepted = command.action
                 except (ValueError, TypeError, json.JSONDecodeError, queue.Full):
                     self._json(400, {"ok": False, "error": "Comando non valido"})
                     return
-                self._json(202, {"ok": True, "accepted": command.action})
+                self._json(202, {"ok": True, "accepted": accepted})
 
             def _json(self, status: int, payload: dict[str, Any]) -> None:
                 body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -168,8 +181,19 @@ class LocalBrowserBridge:
             except queue.Empty:
                 return commands
 
+    def drain_subtitles(self) -> list[BrowserSubtitle]:
+        subtitles: list[BrowserSubtitle] = []
+        while True:
+            try:
+                subtitles.append(self._subtitles.get_nowait())
+            except queue.Empty:
+                return subtitles
+
     def _enqueue(self, command: BridgeCommand) -> None:
         self._commands.put_nowait(command)
+
+    def _enqueue_subtitle(self, subtitle: BrowserSubtitle) -> None:
+        self._subtitles.put_nowait(subtitle)
 
     @staticmethod
     def _load_or_create_token() -> str:
@@ -201,3 +225,13 @@ class LocalBrowserBridge:
         if profile is not None and profile not in _ALLOWED_PROFILES:
             raise ValueError
         return BridgeCommand(str(action), profile, str(browser))
+
+    @staticmethod
+    def _parse_subtitle(payload: object) -> BrowserSubtitle:
+        if not isinstance(payload, dict):
+            raise ValueError
+        text = str(payload.get("text", "")).strip()
+        browser = str(payload.get("browser", "chrome")).casefold()
+        if not text or len(text) > 500 or browser not in _ALLOWED_BROWSERS:
+            raise ValueError
+        return BrowserSubtitle(text, browser)

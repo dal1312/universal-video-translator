@@ -56,13 +56,6 @@ class AppPaths:
     def engines(self) -> Path:
         return self.root / "engines"
 
-    @property
-    def piper_runtime(self) -> Path:
-        return self.engines / "piper" / ".venv"
-
-    @property
-    def piper_voices(self) -> Path:
-        return self.root / "voices" / "piper"
 
 
 def default_app_root() -> Path:

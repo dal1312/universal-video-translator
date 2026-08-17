@@ -6,13 +6,21 @@ Universal Video Translator e' un'app desktop Windows per tradurre contenuti vide
 
 La versione **v0.2.1** introduce l'integrazione browser sicura: l'estensione non legge il link della pagina, non invia URL all'app e avvia solo AI Overlay OS. La modalita' **Video e file** resta disponibile manualmente per URL YouTube, video locali, audio, SRT e VTT.
 
+### Build locale di collaudo
+
+La build locale Windows piu' recente e' disponibile nella cartella
+`dist-local-20260817\\UniversalVideoTranslator`. Avviare
+`UniversalVideoTranslator.exe` direttamente da quella cartella. Questa build
+non e' una release GitHub ufficiale e serve per la verifica locale di audio,
+player, download YouTube e sottotitoli.
+
 ## Stato Del Progetto
 
 - Versione corrente: `0.2.1`.
 - Piattaforma target: Windows 10/11 x64.
 - Distribuzione consigliata: ZIP portatile generato dalla pipeline di release.
-- Elaborazione: locale, con Ollama o Argos, Faster-Whisper e voci Kokoro, Piper o Windows.
-- Browser supportati dall'estensione: Chrome ed Edge in modalita' unpacked.
+- Elaborazione: locale, con Ollama o Argos, Faster-Whisper e voci neurali Kokoro.
+- Browser supportati dall'estensione: Chrome, Edge e Firefox 121+ in modalita' unpacked/temporanea.
 
 ## Funzionalita'
 
@@ -20,14 +28,18 @@ La versione **v0.2.1** introduce l'integrazione browser sicura: l'estensione non
 - Download YouTube con controllo Deno, limite qualita' 720p e avanzamento visibile.
 - Uso prioritario dei sottotitoli esistenti; fallback locale con Faster-Whisper.
 - Traduzione locale tramite Ollama, con `translategemma:latest` come modello predefinito, oppure Argos Translate offline gratuito.
-- Sintesi vocale Kokoro-82M, Piper (Paola/Riccardo), voci Windows e coda vocale anti-sovrapposizione.
+- Sintesi vocale neurale Kokoro-82M con Sara e Nicola e coda anti-sovrapposizione.
 - Player progressivo con video ridimensionabile, pausa, stop e audio italiano senza traccia originale in sottofondo.
 - Esportazione audio WAV/MP3 e creazione MP4 con traccia italiana.
 - AI Overlay OS per tradurre in tempo reale l'audio del browser.
-- Routing automatico Chrome/Edge verso VB-Cable con ripristino crash-safe.
+- Routing automatico Chrome/Edge/Firefox verso VB-Cable con ripristino crash-safe.
 - Singola istanza desktop con inoltro locale autenticato dei click successivi dell'estensione.
 - Impostazioni, cache, log e stato di recupero in `%LOCALAPPDATA%\UniversalVideoTranslator`.
 - Build Windows riproducibile con ZIP, checksum, provenienza e licenze.
+
+Il piano operativo per lo sviluppo e le verifiche locali è in
+[`docs/PROGETTO_SVILUPPO.md`](docs/PROGETTO_SVILUPPO.md). I workflow GitHub
+restano manuali durante questa fase e non eseguono test automatici a ogni push.
 
 ## Modalita' Operative
 
@@ -68,7 +80,7 @@ Sottotitoli esistenti o Faster-Whisper
 Traduzione italiana con Ollama
         |
         v
-Voce Kokoro o Windows
+Voce Kokoro
         |
         v
 Player sincronizzato o esportazione
@@ -110,20 +122,39 @@ scripts\windows\Install-Windows.ps1 -PullModel
 
 ### Motori gratuiti opzionali
 
-Argos traduce interamente offline senza Ollama. Piper aggiunge le voci italiane
-Paola e Riccardo tramite un ambiente esterno separato dall'app. Prima del
-download consulta le licenze dei modelli, quindi esegui solo i componenti che
-vuoi installare:
+Argos traduce interamente offline senza Ollama. Per la sintesi vocale è
+supportato esclusivamente Kokoro:
 
 ```powershell
 .\INSTALLA_MOTORI_OPZIONALI_WINDOWS.bat -Argos -AcceptModelLicenses
-.\INSTALLA_MOTORI_OPZIONALI_WINDOWS.bat -Piper -AcceptPiperGPL -AcceptModelLicenses
+.\INSTALLA_MOTORI_OPZIONALI_WINDOWS.bat -Kokoro
 ```
 
-Senza parametri lo script prepara entrambi i motori, ma richiede comunque le
-due accettazioni. I dati vengono salvati in
-`%LOCALAPPDATA%\UniversalVideoTranslator`; Piper non viene incorporato nella
-distribuzione Apache 2.0.
+`-Kokoro` installa il runtime Kokoro nell'ambiente `.venv`; il modello
+Kokoro-82M viene scaricato automaticamente al primo utilizzo e resta nella
+cache locale di Hugging Face.
+
+Senza parametri lo script prepara Argos. I dati vengono salvati in
+`%LOCALAPPDATA%\UniversalVideoTranslator`.
+
+### Più interlocutori nei media
+
+Per i video con due o più persone, abilita **Separa automaticamente le voci**
+nelle impostazioni avanzate. Il progetto mantiene le battute separate, assegna
+un'etichetta a ciascun interlocutore e può usare una voce TTS diversa per i
+primi due speaker. La funzione è opzionale e non modifica i file SRT/VTT.
+
+Il motore di diarizzazione è separato dal percorso base Windows. Per abilitarlo
+in un ambiente dedicato:
+
+```powershell
+pip install -e ".[diarization]"
+$env:UVT_HF_TOKEN = "<token Hugging Face>"
+```
+
+La diarizzazione è più adatta ai file già registrati; in modalità live può
+aumentare la latenza. Se il modello non è installato, la trascrizione standard
+continua a funzionare senza etichette.
 
 ## Avvio Manuale
 
@@ -142,9 +173,10 @@ ollama serve
 1. Premi **Collega browser** nell'app.
 2. Windows registra `uvt://` solo per l'utente corrente.
 3. L'app apre la cartella dell'estensione inclusa nella build.
-4. Apri `chrome://extensions` oppure `edge://extensions`.
+4. Apri `chrome://extensions`, `edge://extensions` oppure `about:debugging#/runtime/this-firefox`.
 5. Attiva **Modalita' sviluppatore**.
-6. Seleziona **Carica estensione non pacchettizzata**.
+6. In Chrome/Edge seleziona **Carica estensione non pacchettizzata**. In Firefox seleziona **Carica componente aggiuntivo temporaneo** e scegli `manifest.json`.
+   Se Firefox apre una cartella diversa, esegui `INSTALLA_FIREFOX.bat`: evidenzia automaticamente il file corretto e apre la pagina di Firefox.
 7. Scegli questa cartella:
 
 ```text
@@ -152,6 +184,10 @@ UniversalVideoTranslator\_internal\browser_extension
 ```
 
 8. Fissa **Start UVT AI Overlay** nella barra del browser.
+
+Quando premi **Collega browser**, UVT registra anche l'host Native Messaging per
+Firefox in `%APPDATA%\\Mozilla\\NativeMessagingHosts`. Se sposti la build
+portatile, ripeti il collegamento.
 
 Comportamento previsto in v0.2.1:
 
@@ -177,7 +213,7 @@ Se dopo un aggiornamento il click inserisce ancora un link in **Video e file**, 
 UVT e' progettato per uso locale.
 
 - L'estensione usa `storage` e l'accesso limitato a `http://127.0.0.1:17321/*` per comunicare esclusivamente con UVT sul PC.
-- L'estensione non ha content script, accesso a cookie o cronologia, né analytics; non legge l'URL o il contenuto della scheda.
+- L'estensione legge solo i sottotitoli visibili di YouTube/Rumble durante un Overlay attivo; non accede a cookie, cronologia o contenuto generale della scheda.
 - Il protocollo `uvt://` trasporta comando, browser, profilo opzionale, timestamp e ID casuale monouso.
 - Le richieste duplicate, vecchie o gia' usate vengono ignorate.
 - I marker anti-replay non contengono URL e vengono puliti al successivo utilizzo.
@@ -211,6 +247,9 @@ Per azzerare le preferenze chiudi UVT e rinomina `settings.json`. Per svuotare s
 ```
 
 La verifica e' non mutante e controlla sintassi, test, versioni, dipendenze Python, FFmpeg/ffprobe/ffplay, Deno, SoundVolumeView, eSpeak NG, Kokoro, Faster-Whisper, SoundCard, Ollama, modello predefinito e VB-Cable.
+
+I gate di sviluppo includono inoltre copertura Python con soglia minima del
+60%, test del popup in Node.js e controlli statici di accessibilita' e contrasto.
 
 Dall'app puoi rilanciare il controllo essenziale con **Impostazioni → Verifica configurazione**. Per verificare costruzione della GUI reale, pannello contestuale e shutdown:
 
@@ -253,9 +292,25 @@ Output principali:
 dist-browser-v0.2-release\UniversalVideoTranslator\UniversalVideoTranslator.exe
 release\UniversalVideoTranslator-0.2.1-windows-x86_64.zip
 release\UniversalVideoTranslator-0.2.1-windows-x86_64.zip.sha256
+release\UniversalVideoTranslator-Extension-0.2.1.zip
+release\UniversalVideoTranslator-Extension-0.2.1.zip.sha256
 ```
 
-Distribuisci lo ZIP completo, non il solo EXE. Il pacchetto include README, changelog, licenza, note terze parti, provenienza e `SHA256SUMS.txt`.
+Distribuisci lo ZIP desktop completo, non il solo EXE. Il pacchetto include
+README, changelog, licenza, note terze parti, provenienza e `SHA256SUMS.txt`.
+Lo ZIP dell'estensione e' un artefatto separato, deterministico e verificato
+contro tutti i file dichiarati dal manifest.
+
+Per creare anche un installer per utente Windows, dopo la build portatile
+installa Inno Setup 6 ed esegui:
+
+```powershell
+scripts\windows\Build-Installer.ps1
+```
+
+Lo script genera `release\UniversalVideoTranslator-0.2.1-windows-x86_64-setup.exe`
+e il relativo checksum. La firma Authenticode richiede esplicitamente `-Sign`
+e `-CertificateThumbprint`; nessuna identita' di firma viene simulata.
 
 ## Componenti Terze Parti
 
@@ -263,7 +318,7 @@ La distribuzione include o usa componenti esterni, documentati in `THIRD_PARTY_N
 
 - SoundVolumeView 2.53 e' incluso intatto per il routing audio per-app.
 - FFmpeg full build viene copiato nella build Windows.
-- Ollama, Piper, Deno, VB-Cable e i modelli restano componenti esterni/locali; la libreria Argos è inclusa ma i suoi pacchetti linguistici sono scaricati su richiesta.
+- Ollama, Deno, VB-Cable e i modelli restano componenti esterni/locali; la libreria Argos è inclusa ma i suoi pacchetti linguistici sono scaricati su richiesta.
 
 Verifica le condizioni di licenza prima di ridistribuire il pacchetto in contesti commerciali.
 
@@ -272,6 +327,7 @@ Verifica le condizioni di licenza prima di ridistribuire il pacchetto in contest
 - **Il click apre Video e file**: estensione vecchia; rimuovila e carica quella da `_internal\browser_extension`.
 - **UVT non parte dal browser**: premi **Collega browser** per aggiornare il percorso `uvt://`.
 - **VB-Cable non rilevato**: verifica che `CABLE Output (VB-Audio Virtual Cable)` sia tra i dispositivi di registrazione Windows.
+- **Firefox si installa ma non si sente l'audio**: l'estensione non cattura direttamente il suono; UVT usa `CABLE Output`. Chiudi e riapri UVT, seleziona quel dispositivo nelle Impostazioni e poi riavvia l'Overlay.
 - **Il browser resta su CABLE Input dopo un crash**: riavvia UVT; il lease di routing tenta il ripristino automatico.
 - **YouTube fallisce**: controlla Deno, FFmpeg e cookie browser nelle impostazioni avanzate.
 - **Serve diagnosi**: consulta `%LOCALAPPDATA%\UniversalVideoTranslator\logs\uvt.log`.
@@ -282,7 +338,7 @@ Verifica le condizioni di licenza prima di ridistribuire il pacchetto in contest
 - Il primo avvio di Kokoro puo' richiedere il download del modello.
 - YouTube puo' cambiare controlli di accesso o richiedere cookie validi.
 - Il routing audio e' per processo browser, non per singola scheda.
-- La v0.2.1 e' una distribuzione portatile, non un installer MSI.
+- L'installer opzionale e' per utente Windows e non e' un pacchetto MSI.
 - Dopo aver spostato la cartella portatile devi premere di nuovo **Collega browser**.
 
 ## Licenza

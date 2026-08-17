@@ -15,6 +15,7 @@ from .paths import app_paths
 
 HOST_NAME = "it.uvt.browser"
 EXTENSION_ID = "mkicadoggkgglocilpndbmjagaafmgag"
+FIREFOX_EXTENSION_ID = "uvt@dal1312.local"
 _REGISTRY_PATHS = (
     rf"Software\Google\Chrome\NativeMessagingHosts\{HOST_NAME}",
     rf"Software\Microsoft\Edge\NativeMessagingHosts\{HOST_NAME}",
@@ -53,10 +54,41 @@ def register_native_host(
         + "\n",
         encoding="utf-8",
     )
+    firefox_manifest = _firefox_manifest_path(directory, root)
+    firefox_manifest.parent.mkdir(parents=True, exist_ok=True)
+    firefox_manifest.write_text(
+        json.dumps(
+            {
+                "name": HOST_NAME,
+                "description": "Universal Video Translator local bridge",
+                "path": str(native_host_executable()),
+                "type": "stdio",
+                "allowed_extensions": [FIREFOX_EXTENSION_ID],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     for path in _REGISTRY_PATHS:
         with registry.CreateKey(registry.HKEY_CURRENT_USER, path) as key:
             registry.SetValueEx(key, "", 0, registry.REG_SZ, str(manifest.resolve()))
     return manifest
+
+
+def _firefox_manifest_path(directory: Path, root: str | Path | None) -> Path:
+    """Return the Firefox host path without changing Chrome's contract.
+
+    Firefox discovers native hosts from a dedicated per-user directory. Tests
+    pass an isolated app root, so keep their fixture inside that root instead
+    of touching the real AppData tree.
+    """
+    if root is not None:
+        return directory / f"{HOST_NAME}-firefox.json"
+    app_data = os.environ.get("APPDATA")
+    if app_data:
+        return Path(app_data) / "Mozilla" / "NativeMessagingHosts" / f"{HOST_NAME}.json"
+    return directory / f"{HOST_NAME}-firefox.json"
 
 
 def run_native_host(stdin=None, stdout=None) -> int:
@@ -83,14 +115,18 @@ def run_native_host(stdin=None, stdout=None) -> int:
 
 
 def _relay(message: object) -> dict:
-    if not isinstance(message, dict) or message.get("type") not in {"status", "command"}:
+    if not isinstance(message, dict) or message.get("type") not in {"status", "command", "subtitle"}:
         raise ValueError("Messaggio Native Messaging non valido")
     token = app_paths().browser_bridge_token.read_text(encoding="ascii").strip()
     request_type = message["type"]
-    path = "/v1/status" if request_type == "status" else "/v1/command"
+    path = {
+        "status": "/v1/status",
+        "command": "/v1/command",
+        "subtitle": "/v1/subtitle",
+    }[request_type]
     payload = None
     method = "GET"
-    if request_type == "command":
+    if request_type in {"command", "subtitle"}:
         method = "POST"
         payload = json.dumps(message.get("payload", {})).encode("utf-8")
     request = Request(

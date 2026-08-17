@@ -17,6 +17,9 @@ class Cue:
     start: float
     end: float
     text: str
+    # Optional diarization label.  Keeping it optional preserves backwards
+    # compatibility with SRT/VTT files and all existing callers.
+    speaker: str | None = None
 
 
 def timestamp_seconds(value: str) -> float:
@@ -150,22 +153,29 @@ def collapse_rolling_cues(
 
     collapsed: list[Cue] = []
     chain = cues[0].text
+    chain_speaker = cues[0].speaker
     chain_start = cues[0].start
     chain_end = cues[0].end
     previous = cues[0].text
 
     for cue in cues[1:]:
-        related = cue.start <= chain_end + 1.25
+        related = (
+            cue.start <= chain_end + 1.25
+            and cue.speaker == chain_speaker
+        )
         merged = cue.text
         if related:
             merged, related = _merge_rolling_text(chain, previous, cue.text)
 
         if not related:
             if chain.strip():
-                collapsed.append(Cue(chain_start, chain_end, chain.strip()))
+                collapsed.append(
+                    Cue(chain_start, chain_end, chain.strip(), chain_speaker)
+                )
             chain = cue.text
             chain_start = cue.start
             chain_end = cue.end
+            chain_speaker = cue.speaker
         else:
             was_empty = not chain.strip()
             chain = merged
@@ -179,12 +189,16 @@ def collapse_rolling_cues(
             chain_end - chain_start >= max_duration
             or word_count >= max_words
         ):
-            collapsed.append(Cue(chain_start, chain_end, chain.strip()))
+            collapsed.append(
+                Cue(chain_start, chain_end, chain.strip(), chain_speaker)
+            )
             chain = ""
             chain_start = chain_end
 
     if chain.strip():
-        collapsed.append(Cue(chain_start, chain_end, chain.strip()))
+        collapsed.append(
+            Cue(chain_start, chain_end, chain.strip(), chain_speaker)
+        )
     return collapsed
 
 

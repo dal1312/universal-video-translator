@@ -29,7 +29,6 @@ from .browser_protocol import (
 from .browser_bridge import LocalBrowserBridge
 from .native_messaging import register_native_host
 from .desktop_integration import bridge_snapshot, browser_request, dispatch_hotkey
-from .cache import TranslationCache
 from .controllers import (
     BrowserAudioController,
     DocumentTranslationController,
@@ -57,6 +56,7 @@ from .overlay import SubtitleOverlay
 from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
 from .profiles import profile_by_key, profile_key_from_label
+from .live_session import build_live_translator
 from .readiness import (
     SystemReadiness,
     detect_system_readiness,
@@ -67,11 +67,10 @@ from .session import SessionMode, TranslationSession
 from .settings import AppSettings, SettingsStore
 from .tts import (
     KOKORO_VOICES,
-    PIPER_VOICES,
-    available_piper_voices,
-    windows_voice_names,
+    compatible_speech_engine,
+    create_speech_engine,
 )
-from .translation import ARGOS_MODEL, ArgosTranslator, create_translator
+from .translation import ARGOS_MODEL, ArgosTranslator
 from .tray import TrayController
 from .ui_layout import build_window
 from .ui_theme import apply_theme
@@ -99,7 +98,7 @@ class TranslatorWindow(tk.Tk):
             self.geometry(saved.window_geometry)
         except tk.TclError:
             self.geometry("1280x820")
-        self.minsize(1120, 720)
+        self.minsize(1024, 680)
         self.player: SubtitlePlayer | None = None
         self.progressive: ProgressiveDubPlayer | None = None
         self.live: LiveTranslator | None = None
@@ -156,19 +155,26 @@ class TranslatorWindow(tk.Tk):
         self.language_var = tk.StringVar(value=saved.language)
         self.rate_var = tk.IntVar(value=saved.rate)
         self.whisper_var = tk.StringVar(value=saved.whisper_model)
-        self.speech_engine_var = tk.StringVar(value=saved.speech_engine)
+        self.speech_engine_var = tk.StringVar(
+            value=compatible_speech_engine(saved.speech_engine, saved.voice)
+        )
         self.voice_var = tk.StringVar(value=saved.voice)
         self.show_text_var = tk.BooleanVar(value=False)
         self.live_voice_var = tk.BooleanVar(value=saved.live_voice)
         self.capture_device_var = tk.StringVar(
             value=saved.capture_device or "Audio di sistema (predefinito)"
         )
-        self.cookies_var = tk.StringVar(value=saved.cookies_browser)
         self.routing_browser_var = tk.StringVar(value=saved.routing_browser)
+        self.cookies_var = tk.StringVar(value=saved.cookies_browser)
         self.profile_var = tk.StringVar(
             value=profile_by_key(saved.performance_profile).label
         )
         self.auto_ducking_var = tk.BooleanVar(value=saved.auto_ducking)
+        self.diarize_speakers_var = tk.BooleanVar(value=saved.diarize_speakers)
+        self.speaker_count_var = tk.IntVar(value=saved.speaker_count)
+        self.audio_track_var = tk.IntVar(value=saved.audio_track)
+        self.speaker_voice_1_var = tk.StringVar(value=saved.speaker_voice_1)
+        self.speaker_voice_2_var = tk.StringVar(value=saved.speaker_voice_2)
         self.latency_var = tk.StringVar(value="Latenza: in attesa")
         self.latency_detail_var = tk.StringVar(value="")
         self._latest_latency: dict[str, float | int] = {}
@@ -178,6 +184,7 @@ class TranslatorWindow(tk.Tk):
         self._preflight_running = False
         self.dark_mode = saved.dark_mode
         self.advanced_visible = False
+        self._compact_layout: bool | None = None
         self._configure_theme()
         self._build()
         self._restore_saved_layout()
@@ -189,14 +196,13 @@ class TranslatorWindow(tk.Tk):
         if auto_start_overlay:
             self.iconify()
             self.after_idle(self._show_browser_overlay, False)
-        self._start_worker(self._load_models, name="uvt-model-discovery")
         self._start_worker(
             self._load_capture_devices,
             name="uvt-audio-discovery",
         )
         self._start_worker(
-            self._detect_readiness,
-            name="uvt-readiness",
+            self._initialize_environment,
+            name="uvt-environment-discovery",
         )
         self.protocol("WM_DELETE_WINDOW", self._request_close)
         self._tray = TrayController(
@@ -266,6 +272,31 @@ class TranslatorWindow(tk.Tk):
     def _build(self) -> None:
         build_window(self)
 
+    def _on_workspace_resize(self, event: tk.Event) -> None:
+        if event.widget is self.workspace:
+            self._apply_responsive_layout(event.width)
+
+    def _apply_responsive_layout(self, available_width: int | None = None) -> None:
+        if not hasattr(self, "workspace") or not hasattr(self, "config_panel"):
+            return
+        width = available_width or self.workspace.winfo_width()
+        if width <= 1:
+            return
+        compact = width < 1050
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        # Mantieni una sola fonte di configurazione: il pannello Impostazioni.
+        # La colonna destra duplicava modello, voce e lingua e riduceva troppo
+        # lo spazio utile per media e Live.
+        self.config_panel.grid_remove()
+        self.content_shell.columnconfigure(0, weight=1)
+        self.content_shell.columnconfigure(1, weight=0, minsize=0)
+        if compact:
+            self.pipeline_panel.grid_remove()
+        else:
+            self.pipeline_panel.grid()
+
     def _toggle_advanced_settings(self) -> None:
         self.advanced_visible = not self.advanced_visible
         if self.advanced_visible:
@@ -285,7 +316,7 @@ class TranslatorWindow(tk.Tk):
             self.main_body.forget(self.settings_card)
             self.settings_visible = False
             return
-        self.main_body.insert(0, self.settings_card, weight=1)
+        self.main_body.add(self.settings_card, weight=1)
         self.settings_visible = True
 
     def _refresh_output_visibility(self) -> None:
@@ -295,12 +326,28 @@ class TranslatorWindow(tk.Tk):
         workspace = output_card.master
         if self.show_text_var.get():
             output_card.grid()
-            workspace.rowconfigure(1, weight=0)
+            workspace.rowconfigure(0, weight=1)
             workspace.rowconfigure(2, weight=1)
         else:
             output_card.grid_remove()
-            workspace.rowconfigure(1, weight=1)
+            workspace.rowconfigure(0, weight=1)
             workspace.rowconfigure(2, weight=0)
+
+    def _test_voice(self) -> None:
+        settings = self._settings()
+        self.status_var.set("Prova voce in corso…")
+
+        def speak() -> None:
+            try:
+                engine = create_speech_engine(
+                    settings.speech_engine, settings.voice, settings.rate
+                )
+                engine.speak("Questa è una prova della voce italiana.")
+                self._call_in_ui(self.status_var.set, "Prova voce completata")
+            except Exception as exc:
+                self._call_in_ui(self._show_error, exc)
+
+        self._start_worker(speak, name="uvt-test-voice")
 
     def _apply_profile(self, _event=None) -> None:
         profile = profile_by_key(profile_key_from_label(self.profile_var.get()))
@@ -391,6 +438,11 @@ class TranslatorWindow(tk.Tk):
             self.routing_browser_var,
             self.profile_var,
             self.auto_ducking_var,
+            self.diarize_speakers_var,
+            self.speaker_count_var,
+            self.audio_track_var,
+            self.speaker_voice_1_var,
+            self.speaker_voice_2_var,
         )
         for variable in variables:
             if hasattr(variable, "trace_add"):
@@ -424,6 +476,11 @@ class TranslatorWindow(tk.Tk):
             routing_browser=self.routing_browser_var.get(),
             performance_profile=profile_key_from_label(self.profile_var.get()),
             auto_ducking=bool(self.auto_ducking_var.get()),
+            diarize_speakers=bool(self.diarize_speakers_var.get()),
+            speaker_count=int(self.speaker_count_var.get()),
+            audio_track=int(self.audio_track_var.get()),
+            speaker_voice_1=self.speaker_voice_1_var.get().strip(),
+            speaker_voice_2=self.speaker_voice_2_var.get().strip(),
             dark_mode=self.dark_mode,
             advanced_visible=self.advanced_visible,
             window_geometry=self.geometry(),
@@ -571,6 +628,9 @@ class TranslatorWindow(tk.Tk):
             request = browser_request(command)
             if request is not None:
                 self._handle_browser_request(request)
+        for subtitle in bridge.drain_subtitles():
+            if self.live is not None and self.live.running:
+                self.live.submit_subtitle(subtitle.text)
         self._schedule_browser_bridge_poll()
 
     def _schedule_hotkey_poll(self) -> None:
@@ -628,6 +688,11 @@ class TranslatorWindow(tk.Tk):
 
     def _handle_browser_request(self, request) -> None:
         self._source_browser = request.browser
+        # Il browser sorgente determina il routing audio, non il consenso a
+        # leggere i cookie. L'utente abilita i cookie soltanto dalle impostazioni.
+        browser = str(request.browser).casefold()
+        if browser in SUPPORTED_BROWSERS:
+            self.routing_browser_var.set(browser)
         requested_profile = getattr(request, "profile", None)
         if requested_profile:
             profile = profile_by_key(requested_profile)
@@ -680,6 +745,11 @@ class TranslatorWindow(tk.Tk):
                 raise BrowserProtocolError(
                     "Cartella dell'estensione browser non trovata."
                 )
+            manifest = extension / "manifest.json"
+            if not manifest.is_file():
+                raise BrowserProtocolError(
+                    f"Manifest Firefox non trovato: {manifest}"
+                )
             os.startfile(extension)
         except (BrowserProtocolError, OSError) as error:
             self._show_error(error)
@@ -687,9 +757,11 @@ class TranslatorWindow(tk.Tk):
         messagebox.showinfo(
             "Collegamento browser",
             "Protocollo UVT e canale Native Messaging registrati per questo utente.\n\n"
-            "In Chrome o Edge apri la pagina delle estensioni, attiva la "
-            "modalità sviluppatore, scegli 'Carica estensione non pacchettizzata' "
-            "e seleziona la cartella appena aperta.\n\n"
+            "Chrome/Edge: apri la pagina delle estensioni e scegli "
+            "'Carica estensione non pacchettizzata' usando la cartella appena aperta.\n"
+            f"Firefox: apri about:debugging#/runtime/this-firefox, scegli "
+            "'Carica componente aggiuntivo temporaneo' e seleziona il file "
+            f"manifest.json qui: {manifest}\n\n"
             "Quando premi il pulsante, l'estensione non legge né invia il link: "
             "apre direttamente AI Overlay OS, configura l'audio del browser e "
             "avvia la traduzione in tempo reale.",
@@ -802,6 +874,8 @@ class TranslatorWindow(tk.Tk):
         run_id = self.file_controller.begin()
         self._file_run_id = run_id
         self.start_button.configure(state="disabled")
+        self.pause_button.configure(state="disabled", text="Pausa")
+        self.stop_button.configure(state="normal")
         self.live_button.configure(state="disabled")
         self.status_var.set("Preparazione/trascrizione…")
         self._start_worker(
@@ -1024,6 +1098,9 @@ class TranslatorWindow(tk.Tk):
             highlightbackground=colors.border,
             highlightcolor=colors.accent,
         )
+        if hasattr(self, "waveform_canvas"):
+            self.waveform_canvas.configure(background=field)
+            self._draw_waveform()
         if hasattr(self, "text_menu"):
             self.text_menu.configure(bg=field, fg=fg)
 
@@ -1067,9 +1144,8 @@ class TranslatorWindow(tk.Tk):
                 )
             self.overlay.show()
             self.overlay_button.configure(text="Nascondi overlay")
-            live = LiveTranslator(
-                translator=create_translator(settings.ollama_model),
-                cache=TranslationCache(),
+            live, live_model, switched_live_model = build_live_translator(
+                model=settings.ollama_model,
                 whisper_model=settings.whisper_model,
                 source_language=settings.language,
                 rate=settings.rate,
@@ -1087,14 +1163,21 @@ class TranslatorWindow(tk.Tk):
                 on_status=lambda text, run_id=live_run_id: self.after(
                     0, self._set_live_status, text, run_id
                 ),
-                on_error=lambda error: self.after(
-                    0, self._show_live_error, error
-                ),
-                on_metrics=lambda metrics: self.after(
-                    0, self._update_latency, metrics
-                ),
+                on_error=lambda error: self.after(0, self._show_live_error, error),
+                on_metrics=lambda metrics: self.after(0, self._update_latency, metrics),
                 volume_ducker=volume_ducker,
+                live_factory=LiveTranslator,
             )
+            if switched_live_model:
+                self.status_var.set(
+                    f"Live Rapido: uso {live_model} per ridurre la latenza"
+                )
+            else:
+                effective_whisper = profile_by_key(profile_key).whisper_model
+                self.status_var.set(
+                    f"Live {profile_by_key(profile_key).label}: Whisper "
+                    f"{effective_whisper}"
+                )
             if not self.live_controller.activate(live, live_run_id):
                 raise RuntimeError("Sessione Overlay OS non più valida.")
         except Exception:
@@ -1173,11 +1256,11 @@ class TranslatorWindow(tk.Tk):
             self._sync_mode_controls()
 
     def _settings(self) -> RunSettings:
-        selected_voice = self.voice_var.get()
-        if self.speech_engine_var.get() == "kokoro":
-            selected_voice = KOKORO_VOICES.get(selected_voice, selected_voice)
-        elif self.speech_engine_var.get() == "piper":
-            selected_voice = PIPER_VOICES.get(selected_voice, selected_voice)
+        def normalize_voice(value: str) -> str:
+            selected = value.strip()
+            return KOKORO_VOICES.get(selected, selected)
+
+        selected_voice = normalize_voice(self.voice_var.get())
         return RunSettings(
             source=self.file_var.get().strip(),
             ollama_model=self.model_var.get().strip() or "translategemma:latest",
@@ -1189,26 +1272,35 @@ class TranslatorWindow(tk.Tk):
             cookies_browser=(
                 None if self.cookies_var.get() == "nessuno" else self.cookies_var.get()
             ),
+            diarize_speakers=bool(self.diarize_speakers_var.get()),
+            speaker_count=int(self.speaker_count_var.get()),
+            audio_track=int(self.audio_track_var.get()),
+            speaker_voices=(
+                normalize_voice(self.speaker_voice_1_var.get()),
+                normalize_voice(self.speaker_voice_2_var.get()),
+            ),
         )
 
     def _refresh_voices(self, _event=None) -> None:
-        if self.speech_engine_var.get() == "kokoro":
-            values = tuple(KOKORO_VOICES)
+        def apply_values(values: tuple[str, ...]) -> None:
             self.voice_combo.configure(values=values)
-            self.voice_var.set(values[0])
-            return
-        if self.speech_engine_var.get() == "piper":
-            values = available_piper_voices() or tuple(PIPER_VOICES)
-            self.voice_combo.configure(values=values)
-            self.voice_var.set(values[0])
-            return
-        values = tuple(windows_voice_names()) or ("default",)
-        self.voice_combo.configure(values=values)
+            for name in ("speaker_voice_1_combo", "speaker_voice_2_combo"):
+                combo = getattr(self, name, None)
+                if combo is not None:
+                    combo.configure(values=values)
+
+        values = tuple(KOKORO_VOICES)
+        apply_values(values)
         self.voice_var.set(values[0])
 
     def _detect_readiness(self) -> None:
         readiness = detect_system_readiness()
         self._call_in_ui(self._apply_readiness, readiness)
+
+    def _initialize_environment(self) -> None:
+        readiness = detect_system_readiness()
+        self._call_in_ui(self._apply_readiness, readiness)
+        self._load_models(argos_available=readiness.available("argos"))
 
     def _run_preflight(self) -> None:
         if self._preflight_running:
@@ -1219,8 +1311,9 @@ class TranslatorWindow(tk.Tk):
 
     def _perform_preflight(self) -> None:
         try:
-            self._detect_readiness()
-            self._load_models()
+            readiness = detect_system_readiness(deep=True)
+            self._call_in_ui(self._apply_readiness, readiness)
+            self._load_models(argos_available=readiness.available("argos"))
             self._load_capture_devices()
         finally:
             self._call_in_ui(self._finish_preflight)
@@ -1234,19 +1327,14 @@ class TranslatorWindow(tk.Tk):
             self.speech_engine_var.get() == "kokoro"
             and not readiness.available("kokoro")
         ):
-            self.speech_engine_var.set("windows")
-            self._refresh_voices()
-        if (
-            self.speech_engine_var.get() == "piper"
-            and not readiness.available("piper")
-        ):
-            self.speech_engine_var.set("windows")
-            self._refresh_voices()
+            self.status_var.set(
+                "Kokoro non installato: installa il motore per usare la voce neurale."
+            )
         self.system_status_var.set(readiness.summary())
         if self.status_var.get() in {"Pronto", "Sistema pronto"}:
             self.status_var.set(readiness.summary())
 
-    def _load_models(self) -> None:
+    def _load_models(self, *, argos_available: bool | None = None) -> None:
         models: list[str] = []
         try:
             models.extend(
@@ -1254,7 +1342,12 @@ class TranslatorWindow(tk.Tk):
             )
         except Exception as error:
             log_exception("models", "discovery_failed", error)
-        if ArgosTranslator.available():
+        has_argos = (
+            argos_available
+            if argos_available is not None
+            else ArgosTranslator.available()
+        )
+        if has_argos:
             models.insert(0, ARGOS_MODEL)
         if models:
             self._call_in_ui(self._apply_models, models)

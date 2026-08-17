@@ -20,6 +20,8 @@ SOURCE_LANGUAGE_CODES = {
 }
 
 YOUTUBE_FORMAT = "bv*[height<=720]+ba/b[height<=720]"
+DOWNLOAD_SOCKET_TIMEOUT = 20
+DOWNLOAD_RETRIES = 2
 
 
 def _is_browser_cookie_error(error: Exception) -> bool:
@@ -34,6 +36,41 @@ def _is_browser_cookie_error(error: Exception) -> bool:
             "cookies database",
         )
     )
+
+
+def _is_youtube_auth_error(error: Exception) -> bool:
+    detail = str(error).casefold()
+    return any(
+        marker in detail
+        for marker in (
+            "sign in to confirm you're not a bot",
+            "sign in to confirm you’re not a bot",
+            "login required",
+            "authentication required",
+        )
+    )
+
+
+def _download_error(error: Exception, cookies_browser: str | None) -> DownloadError:
+    if _is_youtube_auth_error(error):
+        if cookies_browser:
+            return DownloadError(
+                "YouTube richiede un accesso autenticato. Apri YouTube nel "
+                f"browser selezionato ({cookies_browser}), accedi al tuo account, "
+                "chiudi completamente il browser e riprova."
+            )
+        return DownloadError(
+            "YouTube richiede un accesso autenticato. In Impostazioni avanzate "
+            "seleziona in Cookie YouTube il browser in cui hai effettuato "
+            "l'accesso, quindi riprova."
+        )
+    if _is_browser_cookie_error(error):
+        return DownloadError(
+            "I cookie del browser selezionato non sono accessibili. Chiudi "
+            "completamente il browser oppure seleziona un altro browser in "
+            "Impostazioni avanzate."
+        )
+    return DownloadError(f"Download non riuscito: {error}")
 
 
 def is_web_url(value: str) -> bool:
@@ -143,6 +180,10 @@ def download_video(
         "js_runtimes": {"deno": {}},
         "remote_components": {"ejs:github"},
         "progress_hooks": [report_progress],
+        "socket_timeout": DOWNLOAD_SOCKET_TIMEOUT,
+        "retries": DOWNLOAD_RETRIES,
+        "extractor_retries": DOWNLOAD_RETRIES,
+        "fragment_retries": DOWNLOAD_RETRIES,
     }
     if cookies_browser:
         options["cookiesfrombrowser"] = (cookies_browser,)
@@ -218,11 +259,11 @@ def download_video(
                     without_cookies
                 )
             except Exception as fallback_exc:
-                raise DownloadError(
-                    f"Download non riuscito: {fallback_exc}"
+                raise _download_error(
+                    fallback_exc, cookies_browser
                 ) from fallback_exc
         else:
-            raise DownloadError(f"Download non riuscito: {exc}") from exc
+            raise _download_error(exc, cookies_browser) from exc
     if not candidates:
         raise DownloadError("yt-dlp non ha prodotto un file video.")
     return max(candidates, key=lambda path: path.stat().st_size), bool(

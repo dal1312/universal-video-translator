@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from .branding import create_icon
+
 
 class TrayController:
     """Optional Windows notification-area controller."""
@@ -22,14 +24,10 @@ class TrayController:
     def start(self) -> bool:
         try:
             import pystray
-            from PIL import Image, ImageDraw
         except ImportError:
             return False
 
-        image = Image.new("RGBA", (64, 64), "#0b1220")
-        draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((5, 5, 59, 59), 13, fill="#5b8cff")
-        draw.polygon(((18, 18), (46, 32), (18, 46)), fill="white")
+        image = create_icon(64)
         menu = pystray.Menu(
             pystray.MenuItem("Apri UVT", lambda *_: self._on_open(), default=True),
             pystray.MenuItem("Stop AI Overlay", lambda *_: self._on_stop()),

@@ -25,6 +25,10 @@ class RunSettings:
     speech_engine: str
     voice: str
     cookies_browser: str | None
+    diarize_speakers: bool = False
+    speaker_count: int = 2
+    audio_track: int = 0
+    speaker_voices: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +56,13 @@ class TranslationWorkflow:
 
     def prepare(self, settings: RunSettings) -> PreparedPlayback:
         path = self.resolve_input(settings)
-        cues = load_cues(path, whisper_model=settings.whisper_model)
+        cues = load_cues(
+            path,
+            whisper_model=settings.whisper_model,
+            diarize=settings.diarize_speakers,
+            speaker_count=settings.speaker_count,
+            audio_track=settings.audio_track,
+        )
         if not cues:
             raise ValueError("Nessuna battuta rilevata.")
         common = {
@@ -63,6 +73,7 @@ class TranslationWorkflow:
             "rate": settings.rate,
             "speech_engine": settings.speech_engine,
             "voice": settings.voice,
+            "speaker_voices": settings.speaker_voices,
             "on_text": self.on_text,
             "on_status": self.on_status,
             "on_error": self.on_error,
@@ -91,6 +102,9 @@ class TranslationWorkflow:
         cues = load_cues(
             self.resolve_input(settings),
             whisper_model=settings.whisper_model,
+            diarize=settings.diarize_speakers,
+            speaker_count=settings.speaker_count,
+            audio_track=settings.audio_track,
         )
         return export_italian_audio(
             cues,
@@ -101,6 +115,7 @@ class TranslationWorkflow:
             rate=settings.rate,
             speech_engine=settings.speech_engine,
             voice=settings.voice,
+            speaker_voices=settings.speaker_voices,
             on_progress=on_progress,
             on_warning=on_warning,
         )
@@ -117,7 +132,13 @@ class TranslationWorkflow:
         destination_path = Path(destination)
         with tempfile.TemporaryDirectory(prefix="uvt-video-") as directory:
             audio = Path(directory) / "italiano.wav"
-            cues = load_cues(source, whisper_model=settings.whisper_model)
+            cues = load_cues(
+                source,
+                whisper_model=settings.whisper_model,
+                diarize=settings.diarize_speakers,
+                speaker_count=settings.speaker_count,
+                audio_track=settings.audio_track,
+            )
             export_italian_audio(
                 cues,
                 audio,
@@ -127,6 +148,7 @@ class TranslationWorkflow:
                 rate=settings.rate,
                 speech_engine=settings.speech_engine,
                 voice=settings.voice,
+                speaker_voices=settings.speaker_voices,
                 on_progress=on_progress,
                 on_warning=on_warning,
             )

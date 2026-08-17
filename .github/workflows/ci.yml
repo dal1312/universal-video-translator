@@ -1,8 +1,9 @@
 name: CI
 
 on:
-  push:
-  pull_request:
+  # I controlli automatici GitHub sono sospesi durante lo sviluppo locale.
+  # Possono essere richiamati manualmente quando si prepara una release.
+  workflow_dispatch:
 
 permissions:
   contents: read

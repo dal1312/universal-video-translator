@@ -10,14 +10,14 @@ class SubtitleOverlay(tk.Toplevel):
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self._alpha = 0.88
-        self._font_size = 20
+        self._font_size = 16
         self.attributes("-alpha", self._alpha)
         try:
             self.attributes("-toolwindow", True)
         except tk.TclError:
             pass
         self.configure(bg="#101010")
-        self.geometry("1000x150+160+650")
+        self.geometry("760x96+300+90")
         self.minsize(420, 90)
 
         self.label = tk.Label(
@@ -25,10 +25,10 @@ class SubtitleOverlay(tk.Toplevel):
             bg="#101010",
             fg="white",
             font=("Segoe UI", self._font_size, "bold"),
-            wraplength=940,
+            wraplength=700,
             justify="center",
-            padx=28,
-            pady=18,
+            padx=22,
+            pady=12,
         )
         self.label.pack(fill="both", expand=True)
         self.grip = tk.Label(
@@ -144,7 +144,7 @@ class SubtitleOverlay(tk.Toplevel):
         try:
             self.geometry(geometry)
         except tk.TclError:
-            self.geometry("1000x150+160+650")
+            self.geometry("760x96+300+90")
         self.attributes("-alpha", self._alpha)
         self.label.configure(font=("Segoe UI", self._font_size, "bold"))
 

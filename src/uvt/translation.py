@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
+import json
+import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 from langdetect import LangDetectException, detect
@@ -75,6 +79,42 @@ class ArgosTranslator:
     @property
     def last_failed_indices(self) -> tuple[int, ...]:
         return self._last_failed_indices
+
+    @staticmethod
+    def installed(package_directories: tuple[Path, ...] | None = None) -> bool:
+        """Check installed Argos metadata without importing its ML runtime."""
+        try:
+            if importlib.util.find_spec("argostranslate.translate") is None:
+                return False
+        except (ImportError, AttributeError, ValueError):
+            return False
+        if package_directories is None:
+            configured = os.getenv("ARGOS_PACKAGES_DIR")
+            legacy = os.getenv("ARGOS_TRANSLATE_PACKAGE_DIR")
+            data_home = Path(
+                os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")
+            )
+            values = [
+                *(configured.split(os.pathsep) if configured else ()),
+                *(legacy.split(os.pathsep) if legacy else ()),
+                str(data_home / "argos-translate" / "packages"),
+            ]
+            package_directories = tuple(Path(value) for value in values if value)
+        for directory in package_directories:
+            try:
+                metadata_files = directory.glob("*/metadata.json")
+                for metadata_file in metadata_files:
+                    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+                    source = metadata.get("from_code")
+                    targets = {
+                        metadata.get("to_code"),
+                        *metadata.get("to_codes", ()),
+                    }
+                    if source and source != "it" and "it" in targets:
+                        return True
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+        return False
 
     @staticmethod
     def available() -> bool:

@@ -21,8 +21,9 @@ class SubtitlePlayer:
         cache: TranslationCache,
         source_language: str = "auto",
         rate: int = 185,
-        speech_engine: str = "windows",
+        speech_engine: str = "kokoro",
         voice: str = "default",
+        speaker_voices: tuple[str, ...] = (),
         sync: bool = True,
         on_text: Callable[[str], None] | None = None,
         on_status: Callable[[str], None] | None = None,
@@ -35,6 +36,7 @@ class SubtitlePlayer:
         self.rate = rate
         self.speech_engine = speech_engine
         self.voice = voice
+        self.speaker_voices = speaker_voices
         self.sync = sync
         self.on_text = on_text or (lambda _text: None)
         self.on_status = on_status or (lambda _status: None)
@@ -43,6 +45,8 @@ class SubtitlePlayer:
         self._pause = threading.Event()
         self._thread: threading.Thread | None = None
         self._engine = None
+        self._engines: dict[str, object] = {}
+        self._speaker_order: dict[str, int] = {}
 
     @property
     def running(self) -> bool:
@@ -123,9 +127,7 @@ class SubtitlePlayer:
     def prepare(self) -> None:
         if self._engine is None:
             self.on_status("Caricamento motore voce…")
-            self._engine = create_speech_engine(
-                self.speech_engine, self.voice, self.rate
-            )
+            self._engine = self._engine_for(None)
         total = len(self.cues)
         first_translation: str | None = None
         for position, cue in enumerate(self.cues, start=1):
@@ -183,9 +185,7 @@ class SubtitlePlayer:
     def _run(self) -> None:
         try:
             if self._engine is None:
-                self._engine = create_speech_engine(
-                    self.speech_engine, self.voice, self.rate
-                )
+                self._engine = self._engine_for(None)
             started = time.monotonic()
             self.on_status("Riproduzione")
 
@@ -198,11 +198,30 @@ class SubtitlePlayer:
                 translated = self._translate(cue.text, position)
                 self.on_text(translated)
                 self.on_status(f"Battuta {position}/{len(self.cues)}")
-                self._engine.speak(translated)
+                self._engine_for(cue).speak(translated)
 
             self.on_status("Interrotto" if self._stop.is_set() else "Completato")
         except Exception as exc:
             self.on_error(exc)
             self.on_status("Errore")
         finally:
+            for engine in self._engines.values():
+                try:
+                    engine.stop()
+                except (AttributeError, RuntimeError):
+                    pass
             self._engine = None
+
+    def _engine_for(self, cue: Cue | None):
+        selected = self.voice
+        if cue is not None and cue.speaker:
+            index = self._speaker_order.setdefault(
+                cue.speaker, len(self._speaker_order)
+            )
+            if index < len(self.speaker_voices) and self.speaker_voices[index].strip():
+                selected = self.speaker_voices[index].strip()
+        if selected not in self._engines:
+            self._engines[selected] = create_speech_engine(
+                self.speech_engine, selected, self.rate
+            )
+        return self._engines[selected]

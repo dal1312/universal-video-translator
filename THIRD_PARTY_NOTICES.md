@@ -35,9 +35,8 @@ and in `PROVENANCE.json` for packaged releases.
 
 ## External Components
 
-Ollama, the selected Ollama model, Deno, VB-Cable, Piper, Piper voices, Argos
-language packages, and downloaded AI models are not included in the portable
-archive. Their own licenses and privacy policies apply when users install or
-download them. Piper is installed into an isolated external environment only
-after explicit acceptance of its GPL-3.0-or-later license. Voice and translation
-model licenses must be reviewed and accepted separately before download.
+Ollama, the selected Ollama model, Deno, VB-Cable, Argos language packages, and
+downloaded AI models are not included in the portable archive. Their own
+licenses and privacy policies apply when users install or download them. Voice
+and translation model licenses must be reviewed and accepted separately before
+download.

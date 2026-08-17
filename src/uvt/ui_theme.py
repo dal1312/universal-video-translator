@@ -20,14 +20,14 @@ class ThemePalette:
 def palette(dark: bool) -> ThemePalette:
     if dark:
         return ThemePalette(
-            "#070a10",
-            "#101722",
+            "#07101b",
+            "#0d1928",
             "#f4f7fb",
-            "#172131",
-            "#6c8bff",
-            "#26354a",
-            "#8290a5",
-            "#7f9aff",
+            "#14243a",
+            "#1677ff",
+            "#243a55",
+            "#91a2b8",
+            "#398cff",
         )
     return ThemePalette(
         "#f3f5f8",
@@ -67,6 +67,14 @@ def apply_theme(
     style.configure("TFrame", background=bg)
     style.configure("Main.TPanedwindow", background=bg)
     style.configure("Card.TFrame", background=panel, relief="flat")
+    style.configure(
+        "Inset.TFrame",
+        background=field,
+        bordercolor=border,
+        borderwidth=1,
+        relief="solid",
+    )
+    style.configure("TSeparator", background=border)
     for name in ("Surface.TFrame", "Status.TFrame"):
         style.configure(
             name,
@@ -78,6 +86,22 @@ def apply_theme(
 
     style.configure("TLabel", background=bg, foreground=fg)
     style.configure("Card.TLabel", background=panel, foreground=fg)
+    style.configure("Inset.TLabel", background=field, foreground=fg)
+    style.configure("InsetMuted.TLabel", background=field, foreground=muted)
+    _label(
+        style,
+        "PreviewIcon.TLabel",
+        field,
+        accent,
+        ("Segoe UI Symbol", 28),
+    )
+    _label(
+        style,
+        "StageNumber.TLabel",
+        accent,
+        "white",
+        ("Segoe UI Variable Text Semibold", 11),
+    )
     _label(
         style,
         "Title.TLabel",
@@ -86,6 +110,20 @@ def apply_theme(
         ("Segoe UI Variable Display Semibold", 22),
     )
     _label(style, "Subtitle.TLabel", bg, muted, ("Segoe UI Variable Text", 10))
+    _label(
+        style,
+        "HeaderTitle.TLabel",
+        panel,
+        fg,
+        ("Segoe UI Variable Display Semibold", 20),
+    )
+    _label(
+        style,
+        "HeaderSubtitle.TLabel",
+        panel,
+        muted,
+        ("Segoe UI Variable Text", 9),
+    )
     _label(
         style,
         "CardPanelTitle.TLabel",

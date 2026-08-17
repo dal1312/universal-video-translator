@@ -13,7 +13,8 @@ from .paths import app_paths
 SETTINGS_SCHEMA_VERSION = 1
 _LANGUAGES = {"auto", "inglese", "spagnolo", "francese", "tedesco"}
 _WHISPER_MODELS = {"tiny", "base", "small", "medium"}
-_SPEECH_ENGINES = {"kokoro", "piper", "windows"}
+_SPEECH_ENGINES = {"kokoro"}
+_KOKORO_VOICES = {"Sara (Kokoro, donna)", "Nicola (Kokoro, uomo)"}
 _BROWSERS = {"firefox", "chrome", "edge", "nessuno"}
 _PERFORMANCE_PROFILES = {"rapido", "bilanciato", "qualita"}
 
@@ -34,12 +35,17 @@ class AppSettings:
     routing_browser: str = "firefox"
     performance_profile: str = "rapido"
     auto_ducking: bool = True
+    diarize_speakers: bool = False
+    speaker_count: int = 2
+    audio_track: int = 0
+    speaker_voice_1: str = ""
+    speaker_voice_2: str = ""
     dark_mode: bool = True
     advanced_visible: bool = False
     window_geometry: str = "1280x820"
-    overlay_geometry: str = "1000x150+160+650"
+    overlay_geometry: str = "760x96+300+90"
     overlay_alpha: float = 0.88
-    overlay_font_size: int = 20
+    overlay_font_size: int = 16
 
     @classmethod
     def from_mapping(cls, value: Any) -> AppSettings:
@@ -52,6 +58,11 @@ class AppSettings:
         data = {key: item for key, item in value.items() if key in allowed}
         data["schema_version"] = SETTINGS_SCHEMA_VERSION
         candidate = cls(**{**asdict(defaults), **data})
+        selected_voice = (
+            candidate.voice
+            if candidate.voice in _KOKORO_VOICES
+            else defaults.voice
+        )
         return cls(
             ollama_model=_text(candidate.ollama_model, defaults.ollama_model, 200),
             language=(candidate.language if candidate.language in _LANGUAGES else defaults.language),
@@ -66,7 +77,8 @@ class AppSettings:
                 if candidate.speech_engine in _SPEECH_ENGINES
                 else defaults.speech_engine
             ),
-            voice=_text(candidate.voice, defaults.voice, 200),
+            # Migrate old Piper/SAPI selections to the supported neural voice.
+            voice=_text(selected_voice, defaults.voice, 200),
             show_text=bool(candidate.show_text),
             live_voice=bool(candidate.live_voice),
             capture_device=_text(candidate.capture_device, "", 500),
@@ -86,6 +98,19 @@ class AppSettings:
                 else defaults.performance_profile
             ),
             auto_ducking=bool(candidate.auto_ducking),
+            diarize_speakers=bool(candidate.diarize_speakers),
+            speaker_count=_integer(candidate.speaker_count, 2, 8, defaults.speaker_count),
+            audio_track=_integer(candidate.audio_track, 0, 8, defaults.audio_track),
+            speaker_voice_1=(
+                candidate.speaker_voice_1
+                if candidate.speaker_voice_1 in _KOKORO_VOICES
+                else ""
+            ),
+            speaker_voice_2=(
+                candidate.speaker_voice_2
+                if candidate.speaker_voice_2 in _KOKORO_VOICES
+                else ""
+            ),
             dark_mode=bool(candidate.dark_mode),
             advanced_visible=bool(candidate.advanced_visible),
             window_geometry=_text(candidate.window_geometry, defaults.window_geometry, 100),

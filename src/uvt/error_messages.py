@@ -34,7 +34,7 @@ def present_error(error: Exception) -> ErrorPresentation:
         return ErrorPresentation(
             "Voce neurale non disponibile",
             "Il motore vocale Kokoro non è installato.",
-            "Usa la voce Windows oppure esegui INSTALL_WINDOWS.bat.",
+            "Esegui INSTALL_WINDOWS.bat e riavvia UVT.",
         )
     if missing_module == "soundcard":
         return ErrorPresentation(
@@ -57,8 +57,8 @@ def present_error(error: Exception) -> ErrorPresentation:
     if isinstance(error, LiveCaptureError):
         return ErrorPresentation(
             "Acquisizione audio non riuscita",
-            "Il dispositivo audio selezionato non è disponibile.",
-            "Apri Impostazioni, seleziona CABLE Output o l’audio predefinito e riprova.",
+            "Il dispositivo audio selezionato non è disponibile. Firefox invia l’audio a UVT tramite VB-Cable.",
+            "Verifica CABLE Output, chiudi e riapri UVT, poi seleziona di nuovo CABLE Output nelle Impostazioni.",
         )
     if isinstance(error, TranscriptionError):
         return ErrorPresentation(

@@ -35,6 +35,46 @@ _NON_ITALIAN_OUTPUT = re.compile(
 _ITALIAN_LANGUAGE_NAMES = {"it", "ita", "italian", "italiano", "italiana"}
 DetectorFactory.seed = 0
 
+_LIVE_MODEL_CANDIDATES = (
+    "translategemma:latest",
+    "translategemma:4b",
+    "qwen2.5:3b",
+    "qwen3:4b",
+)
+_LARGE_MODEL_MARKERS = ("8b", "9b", "12b", "14b", "27b", "32b", "70b")
+
+
+def resolve_live_model(
+    preferred: str,
+    *,
+    url: str = "http://127.0.0.1:11434/api/tags",
+) -> tuple[str, bool]:
+    """Prefer an installed small model for Rapido live translation.
+
+    Media/export keeps the user's selected model. Live audio is latency-bound,
+    so a large model is replaced only when a known smaller local model is
+    already installed. If Ollama is unavailable, the selected model is kept so
+    its normal readiness/error path remains authoritative.
+    """
+    selected = preferred.strip() or "translategemma:latest"
+    lowered = selected.casefold()
+    if not any(marker in lowered for marker in _LARGE_MODEL_MARKERS):
+        return selected, False
+    try:
+        response = requests.get(url, timeout=1.5)
+        response.raise_for_status()
+        models = {
+            str(item.get("name", "")).casefold()
+            for item in response.json().get("models", [])
+            if item.get("name")
+        }
+    except (requests.RequestException, TypeError, ValueError, AttributeError):
+        return selected, False
+    for candidate in _LIVE_MODEL_CANDIDATES:
+        if candidate.casefold() in models:
+            return candidate, True
+    return selected, False
+
 
 def _normalized_text(value: str) -> str:
     return " ".join(value.casefold().split())
@@ -194,8 +234,16 @@ class OllamaTranslator:
         self._ready = True
 
     def list_models(self) -> list[str]:
-        self._ensure_ready()
-        return sorted(self._installed_models(), key=str.casefold)
+        """Return models from an already-running Ollama service.
+
+        Discovery is intentionally passive: opening the GUI must not start a
+        background Ollama server or wait for its warm-up sequence.
+        """
+        try:
+            models = self._installed_models()
+        except requests.RequestException:
+            return []
+        return sorted(models, key=str.casefold)
 
     def warmup(self) -> None:
         """Load the model and exercise token generation before live audio."""

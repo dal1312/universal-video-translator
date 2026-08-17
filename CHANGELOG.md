@@ -4,6 +4,36 @@
 
 ## Non rilasciato
 
+- Live può ricevere le didascalie visibili di YouTube/Rumble tramite Firefox,
+  Chrome o Edge e usarle come testo prioritario rispetto alla trascrizione
+  audio; il browser chiamante viene inoltre selezionato automaticamente per
+  routing e cookie.
+- Nuovo layout desktop responsivo verificato a 1024x700, con stato media vuoto
+  esplicito, shutdown pulito e inizializzazione dei motori non invasiva.
+- Popup browser ridisegnato con tema chiaro/scuro, focus da tastiera, stato busy,
+  messaggi accessibili e test automatici DOM, contrasto e manifest.
+- Manifest multipiattaforma compatibile con Chrome/Edge e Firefox 121+, icone
+  UVT deterministiche e ZIP estensione separato con checksum SHA-256.
+- Gate locale di copertura Python fissato al 60% e integrato nella CI Windows.
+- Installer opzionale Inno Setup per utente Windows, bilingue, con checksum e
+  firma Authenticode esplicita quando viene fornito un certificato reale.
+- Supporto Firefox completo per estensione temporanea e Native Messaging;
+  `Collega browser` registra il manifest in `%APPDATA%\\Mozilla\\NativeMessagingHosts`.
+- Profilo Live Rapido con selezione automatica di un modello Ollama piccolo già
+  installato quando il modello media scelto è grande, per ridurre ritardo e
+  segmenti vocali scartati senza cambiare la qualità dei media.
+- Installer opzionale `-Kokoro` per ambienti sorgente, con download del modello
+  Kokoro-82M al primo utilizzo.
+- Rimosse dall'interfaccia e dal runtime le voci Piper e Windows SAPI: restano
+  disponibili solo Sara e Nicola di Kokoro; le vecchie impostazioni vengono
+  migrate automaticamente.
+- Baseline Windows riproducibile con Python 3.10.20, suite completa e preflight
+  superati.
+- Composizione del percorso Live estratta dalla GUI in un modulo testabile e
+  build PyInstaller locale verificata con host browser, estensione, eSpeak NG e
+  SoundVolumeView inclusi.
+- Supporto opzionale a più interlocutori nei media: diarizzazione, selezione
+  della traccia audio e una voce TTS configurabile per i primi due speaker.
 - Traduzione offline gratuita con Argos Translate come motore selezionabile e fallback automatico quando Ollama non risponde.
 - Voci italiane Piper Paola e Riccardo tramite runtime GPL esterno e installer opzionale con accettazione esplicita delle licenze.
 - Installazione Windows robusta quando più versioni Python sono presenti e launcher sorgente con rilevamento Ollama ed exit code affidabile.
@@ -14,7 +44,7 @@
 - Smoke test Windows end-to-end per costruzione GUI, pannello contestuale e shutdown completo.
 - Errori operativi centralizzati in messaggi azionabili che indicano problema e correzione senza esporre dettagli interni.
 - Visual system estratto dalla finestra principale e selezione automatica di un modello Ollama installato quando quello salvato non è disponibile.
-- Pannello impostazioni contestuale, chiuso all'avvio, con rilevamento automatico dei componenti e fallback alla voce Windows quando Kokoro non è disponibile.
+- Pannello impostazioni contestuale, chiuso all'avvio, con rilevamento automatico dei componenti e stato esplicito quando Kokoro non è disponibile.
 - Supervisore runtime centralizzato per worker e arresto coordinato delle risorse multimediali.
 - Interfaccia desktop ridisegnata come control room locale, con gerarchia tipografica, navigazione dei flussi e stati operativi più chiari.
 - Layout adattivo con riposizionamento sicuro sul monitor e pannello Live compattato per mantenere sempre visibile l'output.
@@ -63,7 +93,7 @@
 - Pulizia dei sottotitoli YouTube progressivi per eliminare ripetizioni ed eco.
 - Trascrizione video/audio con FFmpeg e Faster-Whisper.
 - Supporto URL YouTube tramite yt-dlp, cookie del browser e sottotitoli nativi.
-- Sintesi vocale Kokoro con Sara e Nicola, più fallback alle voci Windows.
+- Sintesi vocale Kokoro con Sara e Nicola, senza sostituzione silenziosa con la voce Windows.
 - Riproduzione progressiva con buffer iniziale e player ridimensionabile.
 - Coda vocale serializzata per impedire la sovrapposizione delle battute.
 - Overlay trascinabile sempre in primo piano.
@@ -71,3 +101,9 @@
 - Creazione MP4 con traccia audio italiana.
 - Traduzione live dell'audio di sistema Windows.
 - Script Windows per installazione completa, verifica e build EXE portatile.
+## Local validation build - 2026-08-17
+
+- Generated a local Windows executable build with PyInstaller.
+- Validated the source with 37 automated tests.
+- Documented the local launch path for `dist-local-20260817`.
+- Kept the official project version at `0.2.1`; this build is not published.
