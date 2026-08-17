@@ -1168,16 +1168,19 @@ class TranslatorWindow(tk.Tk):
                 volume_ducker=volume_ducker,
                 live_factory=LiveTranslator,
             )
+            status_var = getattr(self, "status_var", None)
             if switched_live_model:
-                self.status_var.set(
-                    f"Live Rapido: uso {live_model} per ridurre la latenza"
-                )
+                if status_var is not None:
+                    status_var.set(
+                        f"Live Rapido: uso {live_model} per ridurre la latenza"
+                    )
             else:
                 effective_whisper = profile_by_key(profile_key).whisper_model
-                self.status_var.set(
-                    f"Live {profile_by_key(profile_key).label}: Whisper "
-                    f"{effective_whisper}"
-                )
+                if status_var is not None:
+                    status_var.set(
+                        f"Live {profile_by_key(profile_key).label}: Whisper "
+                        f"{effective_whisper}"
+                    )
             if not self.live_controller.activate(live, live_run_id):
                 raise RuntimeError("Sessione Overlay OS non più valida.")
         except Exception:
