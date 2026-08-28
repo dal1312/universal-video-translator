@@ -3,12 +3,12 @@ from __future__ import annotations
 import tkinter as tk
 import threading
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .cache import TranslationCache
-from .downloader import download_video, is_web_url
+from .config import RunSettings, SUPPORTED_LANGUAGES, WHISPER_MODELS, SUPPORTED_BROWSERS
+from .controller import AppController
 from .export import export_italian_audio, mux_video_with_italian_audio
 from .live import LiveTranslator, capture_device_names
 from .media_player import MediaPreview
@@ -18,18 +18,7 @@ from .player import SubtitlePlayer
 from .progressive import ProgressiveDubPlayer
 from .transcription import load_cues
 from .tts import KOKORO_VOICES, windows_voice_names
-
-
-@dataclass(frozen=True, slots=True)
-class RunSettings:
-    source: str
-    ollama_model: str
-    whisper_model: str
-    language: str
-    rate: int
-    speech_engine: str
-    voice: str
-    cookies_browser: str | None
+from .widgets import StatusFrame, OutputPanel, ActionButtonBar
 
 
 class TranslatorWindow(tk.Tk):
@@ -38,16 +27,27 @@ class TranslatorWindow(tk.Tk):
         self.title("Universal Video Translator")
         self.geometry("1180x720")
         self.minsize(980, 620)
+        
+        # Player instances
         self.player: SubtitlePlayer | None = None
         self.progressive: ProgressiveDubPlayer | None = None
         self.live: LiveTranslator | None = None
+        
+        # Media preview
         self.preview = MediaPreview()
-        self.prepared_media: Path | None = None
         self.preview_directory: tempfile.TemporaryDirectory | None = None
         self.preview_has_italian_audio = False
+        
+        # Download directory
         self.download_directory: tempfile.TemporaryDirectory | None = None
+        
+        # Overlay
         self.overlay = SubtitleOverlay(self)
-
+        
+        # Controller
+        self.controller: AppController | None = None
+        
+        # Variables
         self.file_var = tk.StringVar()
         self.model_var = tk.StringVar(value="translategemma:latest")
         self.language_var = tk.StringVar(value="auto")
@@ -61,15 +61,18 @@ class TranslatorWindow(tk.Tk):
             value="Audio di sistema (predefinito)"
         )
         self.cookies_var = tk.StringVar(value="firefox")
-        self.status_var = tk.StringVar(value="Pronto")
         self.dark_mode = True
         self.advanced_visible = False
+        
         self._configure_theme()
         self._build()
+        
+        # Avvia caricamento modelli in background
         threading.Thread(target=self._load_models, daemon=True).start()
         threading.Thread(
             target=self._load_capture_devices, daemon=True
         ).start()
+        
         self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _build(self) -> None:
